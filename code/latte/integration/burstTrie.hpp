@@ -121,7 +121,7 @@ public:
 		//I updated to the uncommented for-loop. TODO: find out if there is a serious flaw if the termCount != the number of items in the linked list.
 	}
 
-	void insertTerm(const T& newCoef, S* newExps, int start, int myLength,
+	bool insertTerm(const T& newCoef, S* newExps, int start, int myLength,
 			int myDegree)
 	{
 		//cout << "Inserting term into container" << endl;
@@ -130,7 +130,7 @@ public:
 			firstTerm = new BurstTerm<T, S> (newCoef, newExps, start, myLength,
 					myDegree);
 			termCount++;
-			return;
+			return true;
 		}
 
 		bool equal;
@@ -141,13 +141,13 @@ public:
 			newTerm->next = firstTerm;
 			firstTerm = newTerm;
 			termCount++;
-			return;
+			return true;
 		}
 		if (equal)
 		{
 			firstTerm->coef += newTerm->coef;
 			delete newTerm;
-			return;
+			return false;
 		}
 
 		BurstTerm<T, S> *curTerm = firstTerm;
@@ -162,7 +162,7 @@ public:
 		{
 			curTerm->coef += newTerm->coef;
 			delete newTerm;
-			return;
+			return false;
 		}
 
 		if (curTerm == NULL)
@@ -174,6 +174,7 @@ public:
 			newTerm->next = curTerm;
 		}
 		termCount++;
+		return true;
 	}
 
 	BurstTrie<T, S>* burst()
@@ -248,7 +249,7 @@ public:
 
 	}//~BurstTrie()
 
-	void insertTerm(const T& newCoef, S* newExps, int start, int myLength,
+	bool insertTerm(const T& newCoef, S* newExps, int start, int myLength,
 			int myDegree)
 	{
 		assert(myLength > 0);
@@ -279,8 +280,8 @@ public:
 
 		if (curElem->isTrie)
 		{
-			((BurstTrie<T, S>*) curElem->myVal)->insertTerm(newCoef, newExps,
-					start + 1, myLength, myDegree);
+			return ((BurstTrie<T, S>*) curElem->myVal)->insertTerm(newCoef,
+					newExps, start + 1, myLength, myDegree);
 		} else
 		{
 			BurstContainer<T, S>* temp = (BurstContainer<T, S>*) curElem->myVal;
@@ -293,11 +294,11 @@ public:
 				delete temp;
 				curElem->isTrie = true;
 				curElem->myVal = newTrie;
-				newTrie->insertTerm(newCoef, newExps, start + 1, myLength,
-						myDegree);
+				return newTrie->insertTerm(newCoef, newExps, start + 1,
+						myLength, myDegree);
 			} else
 			{
-				temp->insertTerm(newCoef, newExps, start + 1, myLength,
+				return temp->insertTerm(newCoef, newExps, start + 1, myLength,
 						myDegree);
 			}
 		}

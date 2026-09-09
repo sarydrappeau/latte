@@ -246,19 +246,19 @@ void parseLinForms(FormSumConsumer<RationalNTL>* consumer, const string& line)
 }
 
 // Attempts to find a linear form in formSum with same degree and coefficients as those passed in
-// if found, the linear form coefficient in formSum is incremented by coef
-// if not found, a new linear form term is added and formSum's termCount is incremented
+// if found, the linear form coefficient in formSum is incremented by coef and false is returned
+// if not found, a new linear form term is added, formSum's termCount is incremented, and true is returned
 // if formSum is empty, this sets formSum's lHead and cHead variables
-void insertLinForm(const RationalNTL& coef, int degree, const vec_ZZ& coeffs,
+bool insertLinForm(const RationalNTL& coef, int degree, const vec_ZZ& coeffs,
 		linFormSum& formSum) //sort on degree first or last?
 {
 	BurstTrie<RationalNTL, ZZ> *curTrie;
 	//cout << "inserting into linear form with " << formSum.varCount << " variables" << endl;
 
 	if (coef == 0)
-		return;
+		return false;
 
-	if (formSum.termCount == 0) //need to construct the first burst trie (sorted on the first variable) and first container 
+	if (formSum.termCount == 0) //need to construct the first burst trie (sorted on the first variable) and first container
 	{
 		formSum.myForms = new BurstTrie<RationalNTL, ZZ> ();
 		curTrie = formSum.myForms;
@@ -272,10 +272,12 @@ void insertLinForm(const RationalNTL& coef, int degree, const vec_ZZ& coeffs,
 	{
 		exps[i] = coeffs[i];
 	}
-	curTrie->insertTerm(coef, exps, 0, formSum.varCount, degree);
+	bool isNewTerm = curTrie->insertTerm(coef, exps, 0, formSum.varCount, degree);
 
 	delete[] exps;
-	formSum.termCount++;
+	if (isNewTerm)
+		formSum.termCount++;
+	return isNewTerm;
 }
 
 //Prints a nested list representation of our sum of linear forms

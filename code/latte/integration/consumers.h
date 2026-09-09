@@ -3,6 +3,7 @@
 
 #include "blockReps.h"
 #include "burstTrie.h"
+#include "LattException.h"
 
 //trie-based
 
@@ -73,7 +74,13 @@ public:
 	  T coefficientFactorial(coefficient);
 	  for(int i = 2; i <= degree; ++i)
 		  coefficientFactorial *= i;
-	  insertLinForm(coefficientFactorial, degree, coefs, (*formProductSum)[index]);
+	  //A product is stored in a linFormSum, which adds the coefficients of two
+	  //equal (form, degree) terms -- that is the right thing for a sum and the
+	  //wrong thing for a product, where the two factors should have been merged
+	  //into one factor of twice the degree. Refuse such input instead.
+	  if ( ! insertLinForm(coefficientFactorial, degree, coefs, (*formProductSum)[index]) )
+		  THROW_LATTE_MSG(LattException::ie_BadIntegrandFormat, 1,
+				  "a product of linear forms repeats a factor; write it as one factor of the summed power");
   }
   //add a new sum (of products of linear forms)
   void ConsumeLinFormProduct(linFormSum &linformsum) {formProductSum->myFormProducts.push_back(linformsum);}

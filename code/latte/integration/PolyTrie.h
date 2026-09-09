@@ -22,7 +22,8 @@ void loadLinForms(linFormSum&, const string);
 //string parsing
 void parseLinForms(FormSumConsumer<RationalNTL>*, const string&);
 //data structure operations
-void insertLinForm(const RationalNTL& coef, int degree, const vec_ZZ& coeffs, linFormSum&);
+//returns true if a new term was added, false if it merged into an existing one.
+bool insertLinForm(const RationalNTL& coef, int degree, const vec_ZZ& coeffs, linFormSum&);
 string printLinForms(const linFormSum&);
 void destroyLinForms(linFormSum&);
 
