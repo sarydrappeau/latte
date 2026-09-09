@@ -20,7 +20,8 @@ PolytopeValuation::PolytopeValuation(Polyhedron *p, BarvinokParameters &bp) :
 	parameters(bp), poly(p), vertexRayCones(NULL), polytopeAsOneCone(NULL),
 			triangulatedPoly(NULL), freeVertexRayCones(0),
 			freePolytopeAsOneCone(0), freeTriangulatedPoly(0),
-			latticeInverse(NULL), latticeInverseDilation(NULL)
+			latticeInverse(NULL), latticeInverseDilation(NULL),
+	                dilated(false), dilationFactor(to_ZZ(1))
 
 {
 	numOfVars = parameters.Number_of_Variables; //keep number of original variables.
@@ -190,6 +191,24 @@ void PolytopeValuation::dilatePolytopeVertexRays(const RationalNTL & factor)
 }//dilatePolytope
 
 
+//find the dilation factor
+void PolytopeValuation::ensureDilated()
+{
+  if(dilated){
+    return;
+  }
+  if ( numOfVars != numOfVarsOneCone ){
+    dilationFactor = findDilationFactorVertexRays();
+    dilatePolytopeVertexRays(RationalNTL(dilationFactor, to_ZZ(1)));
+  }//if we started with vertex-rays
+  else
+  {
+    dilationFactor = findDilationFactorOneCone();
+    dilatePolytopeOneCone(dilationFactor);
+  }//we started with the lifted polytope.
+  cerr << "dilation factor = " << dilationFactor << endl;
+  dilated = true;
+}
 
 
 /*
@@ -197,7 +216,7 @@ void PolytopeValuation::dilatePolytopeVertexRays(const RationalNTL & factor)
  * Then converts this new polynomial to linear forms.
  * If the input polynomial has a constant term, it is returned (constant terms are not converted to linear forms)
  */
-void PolytopeValuation::dilatePolynomialToLinearForms(linFormSum &linearForms, const monomialSum& originalPolynomial, const ZZ &dilationFactor, RationalNTL & constantMonomial)
+void PolytopeValuation::dilatePolynomialToLinearForms(linFormSum &linearForms, const monomialSum& originalPolynomial, const ZZ &dilation, RationalNTL & constantMonomial)
 {
 	constantMonomial = 0; //assume the originalPolynomial is homogeneous, we will update this if needed.
 	int numberConstantTerms = 0; //used for error checking.
@@ -230,9 +249,9 @@ void PolytopeValuation::dilatePolynomialToLinearForms(linFormSum &linearForms, c
 		//find the total degree of the monomial.
 		for (int currentPower = 0; currentPower < originalMonomial->length; ++currentPower)
 			totalDegree += originalMonomial->exps[currentPower];
-		//cout << "factor^degree = " << dilationFactor << "^" << originalMonomial->degree << endl;
+		//cout << "factor^degree = " << dilation << "^" << originalMonomial->degree << endl;
 		//cout << "length = " << originalMonomial->length << endl;
-		coefficient.div(power(dilationFactor, totalDegree));
+		coefficient.div(power(dilation, totalDegree));
 
 		if (totalDegree == 0)
 		{
@@ -280,7 +299,7 @@ void PolytopeValuation::dilatePolynomialToLinearForms(linFormSum &linearForms, c
 /**
  *
  */
-void PolytopeValuation::dilateLinearForms(linFormSum &linearForms, const linFormSum & originalLinearForms, const ZZ & dilationFactor, RationalNTL &constantMonomial)
+void PolytopeValuation::dilateLinearForms(linFormSum &linearForms, const linFormSum & originalLinearForms, const ZZ & dilation, RationalNTL &constantMonomial)
 {
 
 	BTrieIterator<RationalNTL, ZZ>* linearFormsItr =
@@ -311,7 +330,7 @@ void PolytopeValuation::dilateLinearForms(linFormSum &linearForms, const linForm
 
 		if (lform->degree != 0)
 		{
-			(lform->coef).div(power(dilationFactor, lform->degree));
+			(lform->coef).div(power(dilation, lform->degree));
 
 			for(int i = 0; i < exp.length(); ++i)
 				exp[i] = lform->exps[i]; //convert ZZ* to vec_ZZ.
@@ -345,8 +364,8 @@ ZZ PolytopeValuation::factorial(const int n)
 
 ZZ PolytopeValuation::findDilationFactorOneCone() const
 {
-	ZZ dilationFactor;
-	dilationFactor = 1;
+	ZZ dilation;
+	dilation = 1;
 
 	assert(polytopeAsOneCone);
 
@@ -354,17 +373,17 @@ ZZ PolytopeValuation::findDilationFactorOneCone() const
 	{
 		//a ray is in the form [v1, .., vn a], where a = lcm(the org. vertices), so just find the
 		//lcm of all the a's.
-		dilationFactor = lcm(dilationFactor, v->first[numOfVarsOneCone-1]);
+		dilation = lcm(dilation, v->first[numOfVarsOneCone-1]);
 	}
 
-	return dilationFactor;
+	return dilation;
 }
 
 
 ZZ PolytopeValuation::findDilationFactorVertexRays() const
 {
-	ZZ dilationFactor;
-	dilationFactor = 1;
+	ZZ dilation;
+	dilation = 1;
 
 	assert(vertexRayCones);
 
@@ -372,10 +391,10 @@ ZZ PolytopeValuation::findDilationFactorVertexRays() const
 	for (listCone * currentCone = vertexRayCones; currentCone; currentCone
 			= currentCone->rest)
 		for (int i = 0; i < numOfVars; ++i)
-			dilationFactor = lcm(dilationFactor,
-					(currentCone->vertex->vertex->denominators())[i]);
+			dilation = lcm(dilation,
+				       (currentCone->vertex->vertex->denominators())[i]);
 
-	return dilationFactor;
+	return dilation;
 }
 
 
@@ -419,24 +438,8 @@ RationalNTL PolytopeValuation::findIntegral(const linFormSum& originalLinearForm
 	RationalNTL constantMonomial;
 
 
-	//find the dilation factor.
-	ZZ dilationFactor;
-
 	//cout << "Integrating " << polynomial.termCount << " monomials." << endl;
-	//dilate the polytope
-	if ( numOfVars != numOfVarsOneCone)
-	{
-		dilationFactor = findDilationFactorVertexRays();
-		cerr << "dilation factor = " << dilationFactor << endl;
-		dilatePolytopeVertexRays(RationalNTL(dilationFactor, to_ZZ(1)));
-	}//if we started with vertex-rays
-	else
-	{
-		dilationFactor = findDilationFactorOneCone();
-		cerr << "dilation factor = " << dilationFactor << endl;
-		dilatePolytopeOneCone(dilationFactor);
-	}//we started with the lifted polytope.
-
+	ensureDilated();
 
 	//the input polynomial have have a constant term, but the integration functions can only
 	//work with non-constant monomials. We need to remove any constant terms from the input polynomial.
@@ -516,24 +519,8 @@ RationalNTL PolytopeValuation::findIntegral(const linFormProductSum& originalLin
 
 	linearFormProducts.varCount = originalLinearFormProducts.varCount;
 
-	//find the dilation factor.
-	ZZ dilationFactor;
-
 	cout << "Integrating " << originalLinearFormProducts.myFormProducts.size() << " products of powers of linear forms." << endl;
-	//dilate the polytope
-	if ( numOfVars != numOfVarsOneCone)
-	{
-		dilationFactor = findDilationFactorVertexRays();
-		cerr << "dilation factor = " << dilationFactor << endl;
-		dilatePolytopeVertexRays(RationalNTL(dilationFactor, to_ZZ(1)));
-	}//if we started with vertex-rays
-	else
-	{
-		dilationFactor = findDilationFactorOneCone();
-		cerr << "dilation factor = " << dilationFactor << endl;
-		dilatePolytopeOneCone(dilationFactor);
-	}//we started with the lifted polytope.
-
+	ensureDilated();
 
 	//dilate the integrand..
     //after this call, linearForms is filled in, and constantMonomial is the constant term in the input polynomial.
@@ -837,23 +824,7 @@ RationalNTL PolytopeValuation::findIntegralPolynomialToLinearForms(const monomia
 	RationalNTL answer;
 	RationalNTL constantMonomial;
 
-	//find the dilation factor.
-	ZZ dilationFactor;
-
-	//cout << "Integrating " << polynomial.termCount << " monomials." << endl;
-	//dilate the polytope
-	if ( numOfVars != numOfVarsOneCone)
-	{
-		dilationFactor = findDilationFactorVertexRays();
-		cerr << "dilation factor = " << dilationFactor << endl;
-		dilatePolytopeVertexRays(RationalNTL(dilationFactor, to_ZZ(1)));
-	}//if we started with vertex-rays
-	else
-	{
-		dilationFactor = findDilationFactorOneCone();
-		cerr << "dilation factor = " << dilationFactor << endl;
-		dilatePolytopeOneCone(dilationFactor);
-	}//we started with the lifted polytope.
+	ensureDilated();
 
 
 	//the input polynomial have have a constant term, but the integration functions can only
