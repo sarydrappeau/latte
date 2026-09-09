@@ -92,6 +92,9 @@ private:
 	int lineNumber;
 	string fileName;
 	bool printStatus;
+	/* Backing store for what(), which must hand out a pointer that stays valid
+	   for as long as the exception does. */
+	mutable string whatBuffer;
 };
 
 #endif /* LATTEXCEPTION_H_ */

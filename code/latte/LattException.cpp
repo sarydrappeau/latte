@@ -58,9 +58,13 @@ string  LattException::printErrorMessages() const
 
 const char* LattException::what() const throw()
 {
-	string s = "";
+	/* The returned pointer has to outlive this call, so the string is kept in
+	   a member rather than a local (which used to leave callers printing freed
+	   memory). */
 	if ( LATTEXCEPTION_PRINTSTATUS || printStatus == 1 )
-	s = printErrorMessages();
+		whatBuffer = printErrorMessages();
+	else
+		whatBuffer = "";
 
-	return s.c_str();
+	return whatBuffer.c_str();
 }
