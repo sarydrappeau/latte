@@ -12,6 +12,7 @@
 #include <iostream>
 #include <string>
 #include <sstream>
+#include <vector>
 
 #include "barvinok/barvinok.h"
 #include "ReadPolyhedron.h"
@@ -76,6 +77,9 @@ private:
         bool dilated;   // true once ensureDilated() has run
         ZZ dilationFactor;  // valid only after ensureDilated() has run
         void ensureDilated(); // dilate polytope & cache the factor
+        mutable vector<simplexZZ> cachedSimplices; // one entry per cone of triangulatedPoly, valid after ensureSimplicesCached() has run
+        mutable bool simplicesCached;   // true once ensureSimplicesCached() has run
+        void ensureSimplicesCached() const; // build cachedSimplices from triangulatedPoly; idempotent
 	ZZ findDilationFactorOneCone() const;
 	ZZ findDilationFactorVertexRays() const;
 	RationalNTL findIntegralUsingTriangulation(linFormSum &forms) const; //computes the integral over every simplex

@@ -21,7 +21,8 @@ PolytopeValuation::PolytopeValuation(Polyhedron *p, BarvinokParameters &bp) :
 			triangulatedPoly(NULL), freeVertexRayCones(0),
 			freePolytopeAsOneCone(0), freeTriangulatedPoly(0),
 			latticeInverse(NULL), latticeInverseDilation(NULL),
-	                dilated(false), dilationFactor(to_ZZ(1))
+	                dilated(false), dilationFactor(to_ZZ(1)),
+	                simplicesCached(false)
 
 {
 	numOfVars = parameters.Number_of_Variables; //keep number of original variables.
@@ -209,6 +210,51 @@ void PolytopeValuation::ensureDilated()
   cerr << "dilation factor = " << dilationFactor << endl;
   dilated = true;
 }
+
+
+/* Builds a cache of Simplex data from triangulatedPoly: one simplexZZ per cone,
+ * including the d x d determinant that gives its volume factor. Requires
+ * triangulatedPoly to already be built (i.e. convertToOneCone() and
+ * triangulatePolytopeCone() must have run).
+ */
+void PolytopeValuation::ensureSimplicesCached() const
+{
+  if(simplicesCached){
+    return;
+  }
+  cachedSimplices.clear();
+  for (listCone * currentCone = triangulatedPoly; currentCone; currentCone
+		  = currentCone->rest)
+  {
+	  simplexZZ oneSimplex;
+	  oneSimplex.d = numOfVarsOneCone - 1;
+
+	  int vertexCount = 0; //the current vertex number being processed.
+	  oneSimplex.s.SetLength(numOfVarsOneCone);
+
+	  for (listVector * rays = currentCone->rays; rays; rays = rays->rest, ++vertexCount)
+	  {
+		  oneSimplex.s[vertexCount].SetLength(numOfVarsOneCone-1);
+
+		  for (int k = 0; k < numOfVarsOneCone -1; ++k)
+			  oneSimplex.s[vertexCount][k] = rays->first[k];//save the vertex.
+
+	  }//create the simplex. Don't copy the leading 1.
+
+	  //compute the volume of the Parallelepiped
+	  mat_ZZ matt;
+	  matt.SetDims(oneSimplex.d, oneSimplex.d);
+	  for (int j = 1; j <= oneSimplex.d; j++)
+		  matt[j - 1] = oneSimplex.s[j] - oneSimplex.s[0];
+	  oneSimplex.v = abs(determinant(matt));
+
+	  cachedSimplices.push_back(oneSimplex);
+  }//for every triangulated simplex.
+  simplicesCached = true;
+}
+
+
+
 
 
 /*
@@ -663,48 +709,23 @@ RationalNTL PolytopeValuation::findIntegralUsingTriangulation(linFormSum &forms)
 	if ( forms.termCount == 0)
 		return RationalNTL(); //nothing to do.
 
-	//set up itrator to loop over the linear forms.
+	//set up itrator to loop over the linear forms. The forms are stored keyed by
+	//direction first, so the integration below gets every power of one direction
+	//in a row and computes that direction's inner products and denominators once.
 	BTrieIterator<RationalNTL, ZZ>* linearFormIterator = new BTrieIterator<
 			RationalNTL, ZZ> ();
 	linearFormIterator->setTrie(forms.myForms, forms.varCount);
 
+	ensureSimplicesCached();
 
-
-
-	for (listCone * currentCone = triangulatedPoly; currentCone; currentCone
-			= currentCone->rest)
+	for (size_t simplexIndex = 0; simplexIndex < cachedSimplices.size(); ++simplexIndex)
 	{
-		//First construct a simplex.
-		simplexZZ oneSimplex;
-		oneSimplex.d = forms.varCount;
-
-
-
-		int vertexCount = 0; //the current vertex number being processed.
-		oneSimplex.s.SetLength(numOfVarsOneCone);
-
-		for (listVector * rays = currentCone->rays; rays; rays = rays->rest, ++vertexCount)
-		{
-			oneSimplex.s[vertexCount].SetLength(numOfVarsOneCone-1);
-//			assert( rays->first[numOfVarsOneCone-1] == 1); //make sure the triangulation is such that the vertices of the original polytope is integer.
-
-			for (int k = 0; k < numOfVarsOneCone -1; ++k)
-				oneSimplex.s[vertexCount][k] = rays->first[k];//save the vertex.
-
-		}//create the simplex. Don't copy the leading 1.
-
-		//compute the volume of the Parallelepiped
-		mat_ZZ matt;
-		matt.SetDims(oneSimplex.d, oneSimplex.d);
-		for (int j = 1; j <= oneSimplex.d; j++)
-			matt[j - 1] = oneSimplex.s[j] - oneSimplex.s[0];
-		oneSimplex.v = abs(determinant(matt));
+		const simplexZZ &oneSimplex = cachedSimplices[simplexIndex];
 
 		ZZ numerator, denominator;
 
 		//Finally, we are ready to integrate the linear form over the simplex!
-		integrateLinFormSum(numerator, denominator, linearFormIterator,
-				oneSimplex);
+		integrateLinFormSum(numerator, denominator, linearFormIterator, oneSimplex);
 
 		answer.add(numerator, denominator);
 		++simplicesFinished;
@@ -712,6 +733,7 @@ RationalNTL PolytopeValuation::findIntegralUsingTriangulation(linFormSum &forms)
 			cerr << "Finished integrating " << simplicesFinished << "/" << totalSimplicesToIntegrate << " over " << forms.termCount << " linear forms\n";
 		//answer.add(numerator * coefficient.getNumerator(), denominator * coefficient.getDenominator());
 	}//for every triangulated simplex.
+
 	delete linearFormIterator;
 
 	return answer;
@@ -1006,36 +1028,12 @@ RationalNTL PolytopeValuation::findIntegralProductsUsingTriangulation(linFormSum
 	linearFormIterator->setTrie(forms.myForms, forms.varCount);
 
 
+	ensureSimplicesCached();
 
 	//loop over every simplex.
-	for (listCone * currentCone = triangulatedPoly; currentCone; currentCone
-			= currentCone->rest)
+	for (size_t simplexIndex = 0; simplexIndex < cachedSimplices.size(); ++simplexIndex)
 	{
-		//First construct a simplex.
-		simplexZZ oneSimplex;
-		oneSimplex.d = numOfVarsOneCone -1;
-
-
-
-		int vertexCount = 0; //the current vertex number being processed.
-		oneSimplex.s.SetLength(numOfVarsOneCone);
-
-		for (listVector * rays = currentCone->rays; rays; rays = rays->rest, ++vertexCount)
-		{
-			oneSimplex.s[vertexCount].SetLength(numOfVarsOneCone-1);
-//			assert( rays->first[numOfVarsOneCone-1] == 1); //make sure the triangulation is such that the vertices of the original polytope is integer.
-
-			for (int k = 0; k < numOfVarsOneCone -1; ++k)
-				oneSimplex.s[vertexCount][k] = rays->first[k];//save the vertex.
-
-		}//create the simplex. Don't copy the leading 1.
-
-		//compute the volume of the Parallelepiped
-		mat_ZZ matt;
-		matt.SetDims(oneSimplex.d, oneSimplex.d);
-		for (int j = 1; j <= oneSimplex.d; j++)
-			matt[j - 1] = oneSimplex.s[j] - oneSimplex.s[0];
-		oneSimplex.v = abs(determinant(matt));
+		const simplexZZ &oneSimplex = cachedSimplices[simplexIndex];
 
 		//Finally, we are ready to integrate the products of linear forms over the simplex!
 		RationalNTL integral;
