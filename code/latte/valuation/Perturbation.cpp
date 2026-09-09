@@ -216,13 +216,13 @@ RationalNTL LinearPerturbationContainer::integratePolytope(int m)
 
 
 LinearLawrenceIntegration::LinearLawrenceIntegration(listCone * cone) :
-	divideByZero(0), simplicialCone(cone)
+	divideByZero(0), powersUpdated(false), simplicialCone(cone)
 {
 
 }
 
 LinearLawrenceIntegration::LinearLawrenceIntegration():
-	divideByZero(0), simplicialCone(NULL)
+	divideByZero(0), powersUpdated(false), simplicialCone(NULL)
 {
 
 }
@@ -231,6 +231,7 @@ void LinearLawrenceIntegration::setSimplicialCone(listCone *cone, int numOfRays)
 {
 	simplicialCone = cone;
 	rayDotProducts.resize(numOfRays);
+	powersUpdated = false;
 
 
 }
@@ -256,6 +257,8 @@ bool LinearLawrenceIntegration::computeDotProducts(const vec_ZZ &l, const mat_ZZ
 {
 	//polytope should be dilated...should be integer!
 	const vec_ZZ &vertex = simplicialCone->vertex->vertex->numerators();
+
+	powersUpdated = false; //these are new dot products, their powers are not merged yet.
 
 	//update the vertex dot products. if <v,l>=0, we are done processing this cone
 	//and so report that we did not divide by zero.
@@ -355,6 +358,8 @@ bool LinearLawrenceIntegration::computeDotProducts(const vec_ZZ &e,
 	if (divideByZero == false)
 		return false; //we do not need to do further process. plugging in numbers will work.
 
+	powersUpdated = false; //the epsilon parts change below, so any merged powers are stale.
+
 	//find that rays that dotted to zero and see if this new perturbation will work.
 	unsigned int i = 0;
 	for (listVector * ray = simplicialCone->rays; ray; ray = ray->rest, ++i)
@@ -419,7 +424,12 @@ void LinearLawrenceIntegration::integrateTerm(RationalNTL &totalSum, int m,
 
 	//cout << "before update power: ";
 	//printTerm(true);
-	updatePowers(); //also the location of the (0+e)^{m_0} term is in array index 0.
+	if (!powersUpdated)
+	{
+		updatePowers(); //also the location of the (0+e)^{m_0} term is in array index 0.
+		powersUpdated = true; //updatePowers() is not idempotent, and the merged powers do not depend on m,
+							  //so a second power of the same linear form reuses them.
+	}
 	//cout << "after update power: ";
 	//printTerm();
 

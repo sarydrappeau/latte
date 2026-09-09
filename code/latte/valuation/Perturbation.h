@@ -48,7 +48,9 @@ public:
 	void setLatticeInformation(const mat_ZZ *_latticeInverse, const ZZ * _latticeInverseDilation);
 	void setListCones(int dim, listCone * simpleConeList);
 	void findPerturbation(const vec_ZZ &l);
-	RationalNTL integratePolytope(int m); //integrates the polytope over l.
+	//integrates the polytope over l^m. May be called repeatedly with different m
+	//after one findPerturbation(l): only the numerator's power depends on m.
+	RationalNTL integratePolytope(int m);
 private:
 
 	bool tryCurrentPerturbation(const vec_ZZ &l);
@@ -86,6 +88,7 @@ private:
 	}; // (constant + epsilon *e )^power if constant!=0. If constant = 0, then the semantic is 0 + epsilon * (e^power)
 
 	bool divideByZero; //true if one of the <l,ray> terms vanish.
+	bool powersUpdated; //true if updatePowers() has already run on the current dot products.
 	listCone * simplicialCone; //we treat this as a pointer to a cone, not a pointer to a list of cones...but it is a list of cones.
 	vector<linearPerturbation> rayDotProducts;
 	linearPerturbation numeratorDotProduct;//power term not used.

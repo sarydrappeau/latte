@@ -3,6 +3,7 @@
 #include <NTL/vec_ZZ.h>
 #include <NTL/ZZ.h>
 #include <NTL/mat_ZZ.h>
+#include <cassert>
 #include <iostream>
 #include "print.h"
 
@@ -83,7 +84,71 @@ void convertToSimplex(simplexZZ &mySimplex, string line)
 ;
 
 /**
+ * Compute the part of the formula that depends on the direction of the linear
+ * form and on the simplex, but not on the power the form is raised to: the inner
+ * products <l, s_i>, which of them repeat, the denominators
+ * \prod_{j != i} <l, s_i - s_j>, and their lcm.
+ *
+ * ASSUMES the polytope has dimension less than SimplexLinFormGeometry::maxDimension.
+ */
+void SimplexLinFormGeometry::compute(const vec_ZZ &l, const simplexZZ &mySimplex)
+{
+	ZZ sum;
+	int i, j;
+
+	assert(mySimplex.d + 1 <= maxDimension);
+
+	innerProduct.SetLength(mySimplex.d + 1);
+	denominator.SetLength(mySimplex.d + 1);
+	lcmOfDenominators = 1;
+
+	//Why do we record repetitions: if there are no repeats in the <l, s_i> terms, the simplex is regular on l and we compute the integral as in the first case of the theory.
+	// Otherwise we will have to compute the residue. It is in the residue-function where we worry about the multiplicity of things.
+	for (i = 0; i <= mySimplex.d; i++)
+	{
+		sum = 0;
+		for (j = 0; j < mySimplex.d; j++)
+			sum = sum + l[j] * mySimplex.s[i][j];
+
+		innerProduct[i] = sum; // innerProduct_i= <l, s_i>
+		repeated[i] = 0;
+		for (j = 0; j < i; j++)
+			if (innerProduct[j] == innerProduct[i])
+			{
+				repeated[i] = 1;
+				break;
+			};//record repetitions
+	};//stores inner product for use
+
+	for (i = 0; i <= mySimplex.d; i++)
+	{
+		denominator[i] = 0;
+		if (repeated[i])
+			continue; //this term does not appear in the sum at all.
+
+		denominator[i] = 1;
+		for (j = 0; j <= mySimplex.d; j++)
+			if (i != j)
+				denominator[i] = denominator[i] * (innerProduct[i]
+						- innerProduct[j]); //denominator_i = \prod _{i != j} <l, s_i - s_j>
+
+		//a vanishing denominator means this term needs a residue, whose
+		//denominator depends on the power and so is folded in by update().
+		if (denominator[i] != 0)
+			lcmOfDenominators = lcmOfDenominators * denominator[i] / GCD(
+					lcmOfDenominators, denominator[i]);
+	}
+}//SimplexLinFormGeometry::compute
+
+
+/**
  * Integrate a simplex over a linear form.
+ *
+ * The formula splits in two: everything that depends on the direction of the
+ * linear form and on the simplex is computed by SimplexLinFormGeometry::compute()
+ * below, and update() then raises it to one power m. An integrand that uses the
+ * same direction at several powers -- any non-homogeneous polynomial does -- then
+ * pays for the geometry once instead of once per power.
  *
  * @parm a, b: output parameters, we return a/b += integration answer.
  * @parm l: a linear form.
@@ -91,8 +156,6 @@ void convertToSimplex(simplexZZ &mySimplex, string line)
  * @parm m: the power the linear form is raised to
  * @parm coe: the coefficient of a linear form
  * @parm de: is the extra factor in the formulae that we we multiply the result by
- *
- * ASSUMES the polytope has dimension less than 1000.
  *
  * Paper Citation: @ARTICLE
  * {2008arXiv0809.2083B,
@@ -129,74 +192,52 @@ void convertToSimplex(simplexZZ &mySimplex, string line)
  * Implementation:
  * Instead of finding d!\vol(\Delta, \d m') directly, we just find the volume of the parallelepiped of the simplex.
  * The data structure also assumes the m! is part of the linear form's coefficient.
+ *
+ * Of what is left here, only <l, s_i>^{m+d} and the residues depend on m, so a
+ * second power of the same direction over the same simplex costs only those.
  */
-void update(ZZ &a, ZZ &b, vec_ZZ l, simplexZZ mySimplex, int m, RationalNTL coe, ZZ de)
+void update(ZZ &a, ZZ &b, const SimplexLinFormGeometry &geometry,
+		const simplexZZ &mySimplex, int m, const RationalNTL &coe, const ZZ &de)
 {
-
-	ZZ sum, lcm, total, g, tem;
+	ZZ lcm, total, g, tem;
 	int i, j;
-	vec_ZZ inner_Pro; //inner_Pro[i] = <l, s_i>
+	const vec_ZZ &inner_Pro = geometry.innerProduct; //inner_Pro[i] = <l, s_i>
 	vec_ZZ sum_Nu, sum_De; // (sum_Nu/sum_De)[i] = <l, s_i>^d/ (\prod_{j \neq i} <l, s_i - s_j>)
-	inner_Pro.SetLength(mySimplex.d + 1);
 	sum_Nu.SetLength(mySimplex.d + 1);
-	sum_De.SetLength(mySimplex.d + 1);
+	sum_De = geometry.denominator; //copy: the residue calculation below overwrites entries of it.
 	total = 0;
-	lcm = 1;
-	bool repeat[1000]; //put this on the stack, do not waste the time requesting memory from the heap because this function is called many, many, many times.
-					 //Why is this bool (vs int): if there are no repeats in the <l, s_i> terms, the simplex is regular on l and we compute the integral as in the first case of the theory.
-					 // Otherwise we will have to compute the residue. It is in the residue-function where we worry about the multiplicity of things.
-	for (i = 0; i <= mySimplex.d; i++)
-	{
-		sum = 0;
-		for (j = 0; j < mySimplex.d; j++)
-			sum = sum + l[j] * mySimplex.s[i][j];
-
-		inner_Pro[i] = sum; // inner_Pro_i= <l, s_i>
-		repeat[i] = 0;
-		for (j = 0; j < i; j++)
-			if (inner_Pro[j] == inner_Pro[i])
-			{
-				repeat[i] = 1;
-				break;
-			};//record repetitions
-	};//stores inner product for use
+	lcm = geometry.lcmOfDenominators; //the residues below contribute the rest of it.
 
 	for (i = 0; i <= mySimplex.d; i++)
-		if (!repeat[i])
+		if (!geometry.repeated[i])
 		{
-			sum_Nu[i] = 1;
 			//cout << "update: l= " << l;
 			//cout << "update: v=";
 
 			//for(int index = 0; index <= mySimplex.d; ++index) cout << mySimplex.s[index] << ", ";
 			//cout << endl;
 			//cout << "update::l^dim+m=" << inner_Pro[i] << "^" << mySimplex.d << "+" << m;
-			for (j = 0; j < m + mySimplex.d; j++)
-				sum_Nu[i] = sum_Nu[i] * inner_Pro[i]; // sum_Nu_i = inner_pro ^ (m + d)
-			//cout << "=" << sum_Nu[i] << endl;
-			sum_De[i] = 1;
-			for (j = 0; j <= mySimplex.d; j++)
-				if (i != j)
-					sum_De[i] = sum_De[i] * (inner_Pro[i] - inner_Pro[j]);  //sum_de_i	 = \prod _{i != j} <l, s_i - s_j>
-			if ((sum_Nu[i] < 0) && (sum_De[i] < 0))
+			if (sum_De[i] != 0)
 			{
-				sum_Nu[i] = -sum_Nu[i];
-				sum_De[i] = -sum_De[i];
-			};
-			if (sum_De[i] == 0)
+				sum_Nu[i] = power(inner_Pro[i], m + mySimplex.d); // sum_Nu_i = inner_pro ^ (m + d)
+				//cout << "=" << sum_Nu[i] << endl;
+			} else
 			{
+				//the term has a pole; the residue replaces both halves of the
+				//fraction, so <l, s_i>^{m+d} would be computed for nothing here.
 				vec_ZZ ProDiff;
 				ProDiff.SetLength(mySimplex.d + 1);
 				for (j = 0; j <= mySimplex.d; j++)
 					ProDiff[j] = inner_Pro[i] - inner_Pro[j];
 
-				computeResidue(mySimplex.d, m, ProDiff, inner_Pro[i],
-						sum_Nu[i], sum_De[i]);
+				computeResidue(mySimplex.d, m, ProDiff, inner_Pro[i], sum_Nu[i],
+						sum_De[i]);
+
+				if (sum_De[i] != 0)
+				{
+					lcm = lcm * sum_De[i] / (GCD(lcm, sum_De[i]));
+				};
 			}
-			if (sum_De[i] != 0)
-			{
-				lcm = lcm * sum_De[i] / (GCD(lcm, sum_De[i]));
-			};
 			//cout << "update:i= " << i << "num/dem= " << RationalNTL(sum_Nu[i], sum_De[i]) << endl;
 			//cout << "update:i= " << i << "num/dem= " << sum_Nu[i]<< " / "<< sum_De[i] << endl;
 			//cout << "update:i= " << i << "num/dem= " << sum_Nu[i]/GCD(sum_Nu[i],sum_De[i])<< " / "<< sum_De[i]/GCD(sum_Nu[i],sum_De[i]) << endl;
@@ -205,7 +246,7 @@ void update(ZZ &a, ZZ &b, vec_ZZ l, simplexZZ mySimplex, int m, RationalNTL coe,
 		};
 
 	for (i = 0; i <= mySimplex.d; i++)
-		if ((!repeat[i]) && (sum_De[i] != 0))
+		if ((!geometry.repeated[i]) && (sum_De[i] != 0))
 		{
 			total += sum_Nu[i] * (lcm / sum_De[i]);
 		}
@@ -237,38 +278,103 @@ void update(ZZ &a, ZZ &b, vec_ZZ l, simplexZZ mySimplex, int m, RationalNTL coe,
 }//update
 
 
+/**
+ * Integrates one power of one linear form over one simplex.
+ *
+ * Kept for callers that have a single (l, m) pair to integrate. Callers that
+ * integrate several powers of the same direction should build the geometry once
+ * with SimplexLinFormGeometry::compute() and call the overload above instead.
+ */
+void update(ZZ &a, ZZ &b, const vec_ZZ &l, const simplexZZ &mySimplex, int m,
+		const RationalNTL &coe, const ZZ &de)
+{
+	SimplexLinFormGeometry geometry;
+	geometry.compute(l, mySimplex);
+	update(a, b, geometry, mySimplex, m, coe, de);
+}//update
 
-//This function computes a given fraction a/b, the integral of the linear form forms, over the simplex mySimplex
+
+/**
+ * Returns (d + m)!, extending the table when a higher power turns up. The table
+ * is rebuilt if the dimension changes, which does not happen inside one
+ * integration.
+ */
+const ZZ & DegreeFactorials::get(int d, int m)
+{
+	assert(0 <= m);
+	if (dimension != d)
+	{
+		factorials.clear();
+		dimension = d;
+	}
+
+	if (factorials.empty())
+	{
+		ZZ f;
+		f = 1;
+		for (int i = 1; i <= d; ++i)
+			f *= i;
+		factorials.push_back(f); //factorials[0] = d!
+	}
+
+	for (int k = (int) factorials.size(); k <= m; ++k)
+		factorials.push_back(factorials[k - 1] * (d + k));
+
+	return factorials[m];
+}//DegreeFactorials::get
+
+bool sameDirection(const term<RationalNTL, ZZ>* form, const vec_ZZ &l)
+{
+	if (l.length() != form->length)
+		return false;
+	for (int j = 0; j < form->length; ++j)
+		if (l[j] != form->exps[j])
+			return false;
+	return true;
+}//sameDirection
+
+void copyDirection(const term<RationalNTL, ZZ>* form, vec_ZZ &l)
+{
+	l.SetLength(form->length);
+	for (int j = 0; j < form->length; ++j)
+		l[j] = form->exps[j];
+}//copyDirection
+
+/**
+ * Computes a given fraction a/b, the integral of the linear forms the iterator
+ * produces, over the simplex mySimplex.
+ *
+ * The geometry of a (direction, simplex) pair is computed once and used for
+ * every power of that direction that follows it, which is all of them when the
+ * forms come from a linFormSum (they are stored keyed by direction first).
+ */
 void integrateLinFormSum(ZZ& numerator, ZZ& denominator,
 		PolyIterator<RationalNTL, ZZ>* it, const simplexZZ &mySimplex)
 {
-	ZZ v, de, counter, tem; //, coe;
-	RationalNTL coe;
-	int i, j, index, k, m;
-	vec_ZZ l;
-	//if (forms.varCount!=mySimplex.d) {cout<<"The dimensions of the polynomial and simplex don't match. Please check!"<<forms.varCount<<"<>"<<mySimplex.d<<endl;exit(1);};
-	l.SetLength(mySimplex.d);
 	numerator = 0;
 	denominator = 0;
+
+	DegreeFactorials factorials;
+	SimplexLinFormGeometry geometry;
+	vec_ZZ currentDirection;
+	bool haveDirection = false;
+
 	it->begin();
 	term<RationalNTL, ZZ>* temp;
 	while ((temp = it->nextTerm()) != 0)
 	{
-		coe = temp->coef;
-		m = temp->degree; //obtain coefficient, power
-		l.SetLength(temp->length); //obtain exponent vector
-		for (j = 0; j < temp->length; j++)
+		if (!haveDirection || !sameDirection(temp, currentDirection))
 		{
-			l[j] = temp->exps[j];
-		}
-		de = 1;
-		for (i = 1; i <= mySimplex.d + m; i++)
-		{
-			de = de * i;
-		} //de is (d+m)!. Note this is different from the factor in the paper because in our storage of a linear form, any coefficient is automatically adjusted by m!
-		update(numerator, denominator, l, mySimplex, m, coe, de);//We are ready to compute the integral of one linear form over the simplex
-	}
-	delete temp;
+			copyDirection(temp, currentDirection);
+			geometry.compute(currentDirection, mySimplex);
+			haveDirection = true;
+		}//everything that depends on the direction alone.
+
+		//(d+m)! Note this is different from the factor in the paper because in our storage of a linear form, any coefficient is automatically adjusted by m!
+		update(numerator, denominator, geometry, mySimplex, temp->degree,
+				temp->coef, factorials.get(mySimplex.d, temp->degree));
+	}//for every linear form.
+
 	if (denominator < 0)
 	{
 		denominator *= to_ZZ(-1);

@@ -36,7 +36,54 @@ struct simplexZZ
 	}//pirnt
 };
 
-void update(ZZ &a, ZZ &b, vec_ZZ l, simplexZZ mySimplex,int m, RationalNTL coe, ZZ de);
+/**
+ * The following structure is relevant for the "polytope triangulation" method.
+ * It holds a cache for the numerical values involved in the formula which depend only on
+ * the simplex and the linear form coefficients direction, but not on the power of the linear form.
+ */
+struct SimplexLinFormGeometry
+{
+	//ASSUMES the polytope has dimension less than maxDimension: the flags below
+	//sit in a fixed array rather than a vector, so that filling them in does not
+	//go to the heap.
+	static const int maxDimension = 1000;
+
+	vec_ZZ innerProduct;		// innerProduct[i] = <l, s_i>
+	vec_ZZ denominator;			// denominator[i] = \prod_{j != i} <l, s_i - s_j>; zero when a residue is needed.
+	bool repeated[maxDimension];// repeated[i] = 1 iff <l, s_i> == <l, s_j> for some j < i.
+	ZZ lcmOfDenominators;		// lcm of the non-zero denominators above.
+
+	void compute(const vec_ZZ &l, const simplexZZ &mySimplex);
+};
+
+/**
+ * Hold a cache for the values (d + m)! used in the computation.
+ */
+class DegreeFactorials
+{
+public:
+	DegreeFactorials(): dimension(-1) {}
+
+	const ZZ & get(int d, int m);
+
+private:
+	int dimension;				//dimension the table was built for; -1 = no table yet.
+	std::vector<ZZ> factorials;	//factorials[m] = (dimension + m)!
+};
+
+/**
+ * True if the term's direction is the vector l.
+ *
+ * Linear forms are sorted by direction first and degree last (see
+ * BurstTerm::lessThan), so upon iteration we handle every power of one
+ * direction before moving to the next direction; the integration loops use this to
+ * notice the change and to redo the work that depends on the direction alone.
+ */
+bool sameDirection(const term<RationalNTL, ZZ>* form, const vec_ZZ &l);
+void copyDirection(const term<RationalNTL, ZZ>* form, vec_ZZ &l);
+
+void update(ZZ &a, ZZ &b, const vec_ZZ &l, const simplexZZ &mySimplex,int m, const RationalNTL &coe, const ZZ &de);
+void update(ZZ &a, ZZ &b, const SimplexLinFormGeometry &geometry, const simplexZZ &mySimplex, int m, const RationalNTL &coe, const ZZ &de);
 void delSpace(string &line);
 void convertToSimplex(simplexZZ&, string);
 void integrateLinFormSum(ZZ &a, ZZ &b, PolyIterator<RationalNTL, ZZ>* it, const simplexZZ &mySimplex);

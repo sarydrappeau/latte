@@ -772,19 +772,7 @@ RationalNTL PolytopeValuation::findIntegralUsingLawrence(linFormSum &forms) cons
 			RationalNTL, ZZ> ();
 	linearFormIterator->setTrie(forms.myForms, forms.varCount); //make iterators to loop over the lin. forms.
 
-	RationalNTL coe;
-	int j, m;
-	unsigned int i;
-	vec_ZZ l;
-	ZZ de, numerator, denominator;
 	int dim = dimension; //numOfVars;
-	int numberFinished = 0;
-
-	l.SetLength(numOfVars);
-	numerator = 0;
-	denominator = 0;
-	linearFormIterator->begin();
-	term<RationalNTL, ZZ>* temp;
 
 
 	//The LinearPerturbationContainer is in charge of finding a perturbation if we divide by zero.
@@ -794,35 +782,37 @@ RationalNTL PolytopeValuation::findIntegralUsingLawrence(linFormSum &forms) cons
 	lpc.setLatticeInformation(latticeInverse, latticeInverseDilation);
 	//cout << "lpc got past construction" << endl;
 
+	//The forms are stored keyed by direction first, so every power of one direction
+	//arrives in a row: every dot product <v, l> and <r, l> the perturbation
+	//container computes depends on the direction only, so one findPerturbation()
+	//serves all of them.
+	DegreeFactorials factorials;
+	vec_ZZ currentDirection;
+	bool haveDirection = false;
 
-	while ((temp = linearFormIterator->nextTerm()) != 0)
+	linearFormIterator->begin();
+	term<RationalNTL, ZZ>* lform;
+	while ((lform = linearFormIterator->nextTerm()) != 0)
 	{
-
-		//get the linear form's power and terms.
-		coe = temp->coef;
-		m = temp->degree; //obtain coefficient, power
-		l.SetLength(temp->length); //obtain exponent vector
-		for (j = 0; j < temp->length; j++)
+		if (!haveDirection || !sameDirection(lform, currentDirection))
 		{
-			l[j] = temp->exps[j];
-		}
+			copyDirection(lform, currentDirection);
 
-		//find a perturbation for l
-		lpc.findPerturbation(l);
-		//then integrate it!!! Note that if in the future you wanted to integrate the same
-		//linear form with different powers, you would have to reset the powers in the
-		// linearPerturbation data structure.
+			//find a perturbation for l. This also computes every <v, l> and <r, l>,
+			//none of which depends on the power below.
+			lpc.findPerturbation(currentDirection);
+			haveDirection = true;
+		}//everything that depends on the direction alone.
+
+		const int m = lform->degree;
+
+		//then integrate it!!!
 		RationalNTL integralAns = lpc.integratePolytope(m);
 		//cout << "int ans after lpc " << integralAns << endl;
 
-		de = 1;
-		for (i = 1; i <= dim + m; i++)
-		{
-			de = de * i;
-		} //de is (d+m)!. Note this is different from the factor in the paper because in the storage of a linear form, any coefficient is automatically adjusted by m!
-		//cout << "times coe" << coe << ", div de=" << de << ", dim=" << dim << ", m=" << m << endl;
-		integralAns.mult(coe);
-		integralAns.div(de);
+		//factorials.get is (d+m)!. Note this is different from the factor in the paper because in the storage of a linear form, any coefficient is automatically adjusted by m!
+		integralAns.mult(lform->coef);
+		integralAns.div(factorials.get(dim, m));
 		//cout << "int ans after mul div" << integralAns << endl;
 
 		ans += integralAns;
@@ -830,7 +820,9 @@ RationalNTL PolytopeValuation::findIntegralUsingLawrence(linFormSum &forms) cons
 		++linearFormesFinished;
 		if ( linearFormesFinished % 10000 == 0)
 			cerr << "Finished integrating " << linearFormesFinished << "/" << forms.termCount << " linear forms\n";
-	}//while there are more linear forms to integrate
+	}//for every linear form to integrate
+
+	delete linearFormIterator;
 
 	return ans;
 
