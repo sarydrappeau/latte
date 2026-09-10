@@ -798,7 +798,12 @@ int normalize_main(int argc, char **argv)
       size_t num_cones;
       triang_filename = filename + ".triang";
       {
-	PrintingConeConsumer triang_file_writer(triang_filename);
+	/* These are homogenized, non-dualized cones. */
+	PrintingConeConsumer
+	  triang_file_writer(triang_filename,
+			     ConeFileHeader(params.Number_of_Variables,
+					    /*homogenized:*/true,
+					    /*dualized:*/false));
 	producer->Produce(triang_file_writer);
 	num_cones = triang_file_writer.cone_count;
 	if (verbosity > 0) 

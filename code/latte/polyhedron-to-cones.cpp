@@ -54,7 +54,10 @@ int main(int argc, char *argv[])
     cerr << "The option --output-cones=FILENAME is mandatory." << endl;
     exit(1);
   }
-  printListConeToFile(output_filename.c_str(), poly->cones, poly->numOfVars);
+  ConeFileHeader header(poly->numOfVars, poly->homogenized, poly->dualized,
+			poly->unbounded);
+  printListConeToFile(output_filename.c_str(), poly->cones, poly->numOfVars,
+		      header);
   cerr << "Cones (homogenized: " << boolalpha << poly->homogenized
        << ", dualized: " << poly->dualized
        << ") printed to file `" << output_filename << "'." << endl;

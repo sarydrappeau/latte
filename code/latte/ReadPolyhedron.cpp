@@ -511,9 +511,16 @@ ReadPolyhedronData::read_polyhedron_from_homog_cone_input(
 	/* We are already given a full-dimensional, homogenized cone
 	 or a list of those. */
 	ConeProducer *producer = NULL;
+	/* What the file must say about itself, if it says anything at all. */
+	ConeFileHeader expected(0, /*homogenized:*/true, input_dualized);
+	const string used_option = input_dualized ? "--input-dual-homog-cones"
+			: "--input-primal-homog-cones";
+	ConeFileHeader header;
+	ListConeReadingConeProducer *listcone_producer = NULL;
 	if (input_listcone_format) {
 		if (have_subcones) {
-			listCone *cones = readListConeFromFile(filename.c_str());
+			listCone *cones = readListConeFromFile(filename.c_str(), &header);
+			checkConeFileHeader(header, expected, filename, used_option);
 			if (lengthListCone(cones) != 1) {
 				cerr
 						<< "A subcones file can only be given for a single-cone file."
@@ -522,7 +529,9 @@ ReadPolyhedronData::read_polyhedron_from_homog_cone_input(
 			}
 			producer = new SubconeReadingConeProducer(cones, subcones_filename);
 		} else {
-			producer = new ListConeReadingConeProducer(filename);
+			listcone_producer = new ListConeReadingConeProducer(filename);
+			listcone_producer->SetExpectedHeader(expected, used_option);
+			producer = listcone_producer;
 		}
 	} else {
 		listCone *cone = read_cone_cdd_format(filename);
@@ -536,6 +545,7 @@ ReadPolyhedronData::read_polyhedron_from_homog_cone_input(
 	/* Use the producer to create the polyhedron. */
 	CollectingConeConsumer ccc;
 	producer->Produce(ccc);
+	if (listcone_producer) header = listcone_producer->GetHeader();
 	delete producer;
 	Polyhedron *Poly = new Polyhedron;
 	Poly->cones = ccc.Collected_Cones;
@@ -547,28 +557,48 @@ ReadPolyhedronData::read_polyhedron_from_homog_cone_input(
 	Poly->numOfVars = numOfVars;
 	Poly->homogenized = true;
 	Poly->dualized = input_dualized;
+	/* Dimension is only known now, so it is checked now. */
+	expected.numOfVars = numOfVars;
+	checkConeFileHeader(header, expected, filename, used_option);
+	/* Unboundedness is not visible from the cones; take the file's word for it. */
+	if (header.present) Poly->unbounded = header.unbounded;
 	return Poly;
 }
 
 Polyhedron *
 ReadPolyhedronData::read_polyhedron_from_vertex_cone_input(
 		BarvinokParameters *params) {
-	ConeProducer *producer;
+	ListConeReadingConeProducer *producer;
 	producer = new ListConeReadingConeProducer(filename);
+	/* What the file must say about itself, if it says anything at all. */
+	ConeFileHeader expected(0, /*homogenized:*/false, input_dualized);
+	producer->SetExpectedHeader(expected, "--input-vertex-cones");
 	CollectingConeConsumer ccc;
 	producer->Produce(ccc);
+	ConeFileHeader header = producer->GetHeader();
 	delete producer;
 	Polyhedron *Poly = new Polyhedron;
 	Poly->cones = ccc.Collected_Cones;
 	int numOfVars;
 	if (Poly->cones == NULL)
-		numOfVars = 0;
+	{
+		/* Either the file holds no cones at all, or it was cut short partway
+		   through one. Report it here to avoid reading empty lists later. */
+		cerr << "No cones could be read from `" << filename
+				<< "'; the file is empty or truncated." << endl;
+		THROW_LATTE(LattException::fe_Parse, 0);
+	}
 	else
 		numOfVars = ambient_cone_dimension(Poly->cones);
 	//printListCone(Poly->cones, numOfVars);
 	Poly->numOfVars = numOfVars;
 	Poly->homogenized = false;
 	Poly->dualized = input_dualized;
+	/* Dimension is only known now, so it is checked now. */
+	expected.numOfVars = numOfVars;
+	checkConeFileHeader(header, expected, filename, "--input-vertex-cones");
+	/* Unboundedness is not visible from the cones; take the file's word for it. */
+	if (header.present) Poly->unbounded = header.unbounded;
 	return Poly;
 }
 

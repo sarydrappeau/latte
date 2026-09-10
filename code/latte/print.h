@@ -43,25 +43,33 @@ void printRationalVectorToFileWithoutBrackets(ostream &, rationalVector*,
 					      int);
 void printConeToFile(ostream &out, listCone* cones, int numOfVars);
 
-// Read a cone in the format of `printCone'.  However, this is NOT
-// a general function at the moment; we only read the extreme rays.
+/* ConeFileHeader is declared in cone.h, so that cone_consumer.h can use it
+   too.  Reading, writing and checking it live here. */
+void printConeFileHeaderToFile(ostream &out, const ConeFileHeader &header);
+ConeFileHeader readConeFileHeader(istream &in);
+void checkConeFileHeader(const ConeFileHeader &header, const ConeFileHeader &expected,
+		    const string &filename, const string &used_option);
+
 listCone *
 readConeFromFile(istream &in);
 
-void printListConeToFile(const char*, listCone*, int); 
+void printListConeToFile(const char*, listCone*, int);
 
-// Read a list of cones in the format of `printListCone'. However,
-// this is NOT a general function at the moment; we only read the
-// extreme rays.
+// Likewise, prefixed by a header block describing the cones.
+void printListConeToFile(const char*, listCone*, int, const ConeFileHeader &);
+
+// Read a list of cones in the format of `printListCone'.
+// If HEADER_OUT is non-NULL and the file has a header block, it is stored there.
 listCone *
-readListConeFromFile(istream &in);
+readListConeFromStream(istream &in, ConeFileHeader *header_out = NULL);
 
 listCone *
-readListConeFromFile(const char *);
+readListConeFromFile(const char *, ConeFileHeader *header_out = NULL);
 
 // Likewise, but feed the cones one by one to CONSUMER.
 void
-readListConeFromFile(istream &in, ConeConsumer &consumer);
+readListConeFromFile(istream &in, ConeConsumer &consumer,
+		     ConeFileHeader *header_out = NULL);
 
 void printResidueFile(const char*, listCone*, int);
 

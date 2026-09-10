@@ -83,6 +83,31 @@ struct listCone {
   listCone();
 };
 
+/* The header block that a cone file may carry ahead of its first cone.
+   Format is described above `readConeFromFile'. Records properties of the cones
+   in the file (vertex-cones / primal-homog-cones / dual-homog-cones)
+
+   PRESENT is false for a file written before the header existed; such a file
+   is still read, it just cannot be checked. */
+class ConeFileHeader {
+public:
+  static const int current_version = 1;
+  bool present;
+  int version;
+  int numOfVars;		/* Polyhedron::numOfVars; 0 if not stated. */
+  bool homogenized;
+  bool dualized;
+  bool unbounded;
+  ConeFileHeader()
+    : present(false), version(current_version), numOfVars(0),
+      homogenized(false), dualized(false), unbounded(false) {}
+  ConeFileHeader(int a_numOfVars, bool a_homogenized, bool a_dualized,
+		 bool a_unbounded = false)
+    : present(true), version(current_version), numOfVars(a_numOfVars),
+      homogenized(a_homogenized), dualized(a_dualized),
+      unbounded(a_unbounded) {}
+};
+
 /* Allocate a single listCone element and initialize all members. */
 listCone* createListCone();
 

@@ -49,6 +49,8 @@ class PrintingConeConsumer : public ConeConsumer {
 public:
   int cone_count;
   PrintingConeConsumer(string filename);
+  // Likewise, but prefix the file with a header describing the cones
+  PrintingConeConsumer(string filename, const ConeFileHeader &header);
   int ConsumeCone(listCone *cone);
 };
 
@@ -72,9 +74,20 @@ class ListConeReadingConeProducer : public ConeProducer {
 public:
   ListConeReadingConeProducer(const string &a_filename, int a_size_estimate = 0);
   void Produce(ConeConsumer &consumer);
+  /* Refuse the file unless its header block, if it has one, describes the
+     cones EXPECTED describes; HINT names the option that would have been
+     right. */
+  void SetExpectedHeader(const ConeFileHeader &a_expected, const string &a_hint);
+  /* The header the file carried, valid after Produce; its PRESENT property is false
+     when the file had none. */
+  const ConeFileHeader &GetHeader() const { return header; }
 private:
   string filename;
   int size_estimate;
+  bool have_expected;
+  ConeFileHeader expected;
+  string hint;
+  ConeFileHeader header;
 };
 
 // ConeTransducer consume cones and produce other cones;

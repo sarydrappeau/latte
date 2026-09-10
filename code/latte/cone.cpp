@@ -169,8 +169,7 @@ int ambient_cone_dimension(const listCone *cone)
 
 /* Record cone's determinant if it is simplicial and does not already carry
    one; do nothing otherwise.  Zero means "not computed".
-   Non-simplicial cone have no single determinant to store, their determinant
-   field is set to 0. */
+   Non-simplicial cone have no single determinant to store. */
 
 void ensureConeDeterminant(listCone *cone, int numOfVars)
 {

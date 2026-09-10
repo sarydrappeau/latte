@@ -32,6 +32,7 @@
 #include "cone.h"
 #include "ramon.h"
 #include "print.h"
+#include "LattException.h"
 #include "gnulib/pathmax.h"
 
 /* ----------------------------------------------------------------- */
@@ -247,6 +248,170 @@ skip_space(istream &in)
   }
 }
 
+/* ----------------------------------------------------------------- */
+/* The header block.  See the format description below. */
+
+void
+printConeFileHeaderToFile(ostream &out, const ConeFileHeader &header)
+{
+  out << "LattE cone file.\n";
+  out << "Format version: " << header.version << endl;
+  out << "Ambient dimension: " << header.numOfVars << endl;
+  out << "Homogenized: " << (header.homogenized ? 1 : 0) << endl;
+  out << "Dualized: " << (header.dualized ? 1 : 0) << endl;
+  out << "Unbounded: " << (header.unbounded ? 1 : 0) << endl;
+}
+
+static string
+trim(const string &s)
+{
+  size_t b = s.find_first_not_of(" \t\r\n");
+  if (b == string::npos) return "";
+  size_t e = s.find_last_not_of(" \t\r\n");
+  return s.substr(b, e - b + 1);
+}
+
+static bool
+parse_header_bool(const string &value, bool &result)
+{
+  if (value == "0" || value == "false") { result = false; return true; }
+  if (value == "1" || value == "true") { result = true; return true; }
+  return false;
+}
+
+static void
+header_parse_error(const string &what)
+{
+  cerr << "Malformed header in cone file: " << what << "." << endl;
+  THROW_LATTE(LattException::fe_Parse, 0);
+}
+
+/* How a header describes itself in a diagnostic. */
+static string
+describe_cones(const ConeFileHeader &header)
+{
+  if (!header.homogenized) return "vertex cones";
+  if (header.dualized) return "dual homogenized cones";
+  return "primal homogenized cones";
+}
+
+ConeFileHeader
+readConeFileHeader(istream &in)
+{
+  ConeFileHeader header;
+  header.present = false;
+  skip_space(in);
+  /* A file without a header starts with `==========' or `No cones in list.',
+     never with the `L' of `LattE cone file.'. */
+  if (in.peek() != 'L') return header;
+
+  istream::pos_type start = in.tellg();
+  string line;
+  if (!getline(in, line)) return header;
+  if (trim(line) != "LattE cone file.") {
+    if (start == istream::pos_type(-1))
+      header_parse_error("the file begins with `" + trim(line)
+			 + "' where a cone or a header was expected");
+    in.clear();
+    in.seekg(start);
+    return header;
+  }
+
+  header.present = true;
+  bool seen_version = false;
+  for (;;) {
+    istream::pos_type line_start = in.tellg();
+    if (!getline(in, line)) break;
+    string field = trim(line);
+    if (field.size() == 0) continue;
+    size_t colon = field.find(':');
+    if (colon == string::npos) {
+      /* `==========' or `No cones in list.' -- the header is over. */
+      in.clear();
+      in.seekg(line_start);
+      break;
+    }
+    string key = trim(field.substr(0, colon));
+    string value = trim(field.substr(colon + 1));
+    if (key == "Format version") {
+      istringstream s(value);
+      if (!(s >> header.version))
+	header_parse_error("`Format version: " + value + "' is not a number");
+      if (header.version > ConeFileHeader::current_version) {
+	cerr << "This cone file is in format version " << header.version
+	     << "; this LattE understands up to version "
+	     << ConeFileHeader::current_version
+	     << ".  It was written by a newer LattE." << endl;
+	THROW_LATTE(LattException::fe_Parse, 0);
+      }
+      seen_version = true;
+    }
+    else if (key == "Ambient dimension") {
+      istringstream s(value);
+      if (!(s >> header.numOfVars))
+	header_parse_error("`Ambient dimension: " + value + "' is not a number");
+    }
+    else if (key == "Homogenized") {
+      if (!parse_header_bool(value, header.homogenized))
+	header_parse_error("`Homogenized: " + value + "' is not 0 or 1");
+    }
+    else if (key == "Dualized") {
+      if (!parse_header_bool(value, header.dualized))
+	header_parse_error("`Dualized: " + value + "' is not 0 or 1");
+    }
+    else if (key == "Unbounded") {
+      if (!parse_header_bool(value, header.unbounded))
+	header_parse_error("`Unbounded: " + value + "' is not 0 or 1");
+    }
+    /* Anything else is a field of some later version: ignore it, so that
+       adding a field does not by itself require a version bump. */
+  }
+  if (!seen_version)
+    header_parse_error("no `Format version:' line");
+  return header;
+}
+
+/* The input option that reads cones of the kind HEADER describes. */
+static string
+option_for_cones(const ConeFileHeader &header)
+{
+  if (!header.homogenized) {
+    if (header.dualized) return "";	/* Dualized vertex cones: no option reads those. */
+    return "--input-vertex-cones";
+  }
+  if (header.dualized) return "--input-dual-homog-cones";
+  return "--input-primal-homog-cones";
+}
+
+void
+checkConeFileHeader(const ConeFileHeader &header, const ConeFileHeader &expected,
+		    const string &filename, const string &used_option)
+{
+  if (!header.present) return;	/* Written before headers existed; cannot check. */
+  if (header.homogenized != expected.homogenized
+      || header.dualized != expected.dualized) {
+    cerr << "The cone file `" << filename << "' holds "
+	 << describe_cones(header) << " (Homogenized: " << header.homogenized
+	 << ", Dualized: " << header.dualized << "), but ";
+    if (used_option.size()) cerr << used_option << " expects ";
+    else cerr << "this input option expects ";
+    cerr << describe_cones(expected) << "." << endl;
+    string right_option = option_for_cones(header);
+    if (right_option.size())
+      cerr << "Use " << right_option << " to read this file." << endl;
+    THROW_LATTE(LattException::fe_Parse, 0);
+  }
+  if (expected.numOfVars != 0 && header.numOfVars != 0
+      && expected.numOfVars != header.numOfVars) {
+    cerr << "The cone file `" << filename << "' declares ambient dimension "
+	 << header.numOfVars << ", but its cones live in dimension "
+	 << expected.numOfVars << "." << endl;
+    THROW_LATTE(LattException::fe_Parse, 0);
+  }
+}
+
+/* ----------------------------------------------------------------- */
+
 static listVector *
 readListVector(istream &in)
 {
@@ -262,6 +427,10 @@ readListVector(istream &in)
       end_p = &(*end_p)->rest;
     }
   }
+  if (result == NULL) {
+    /* Nothing at all */
+    return NULL;
+  }
   if (result->rest == NULL
       && result->first.length() == 0) {
     /* Read [], which is meant to designate an empty list,
@@ -273,23 +442,56 @@ readListVector(istream &in)
 }
 
 /**
- * The input file contains cones in the form
+ * LattE's cone-list format, as written by printConeToFile above and read back
+ * here.  An optional header block, then one block per cone, exactly:
+
+LattE cone file.
+Format version: 1
+Ambient dimension: 3
+Homogenized: 0
+Dualized: 0
+Unbounded: 0
 ==========
 Cone.
-Coefficient: int
-Vertex: [-a/b c/d ... z]
+Coefficient: 1
+Vertex: [1/2 1/2 0]
 Extreme rays:
-[-a b c ... ]
-[-a b c ... ]
-[-a b c ... ]
-[-a b c ... ]
-Determinant:int
+[1 -1 0]
+[-1 0 0]
+[0 0 1]
+Determinant:-1
 Facets:
 []
 Dual determinant:0
 Lattice points in parallelepiped:
 []
 ==========
+
+ * An empty list of cones is written as the single line "No cones in list."
+ *
+ * Vectors are bracketed and space-separated.  Ray, facet and lattice-point
+ * entries are integers; only the vertex may carry fractions, written a/b, with
+ * the denominator omitted when it is 1.  "[]" on its own denotes an empty
+ * list, not a zero-dimensional vector.
+ *
+ * Both determinant fields are integers (never rationals).
+ * A determinant of 0 means "not computed" or "not computable" (e.g. non-
+ * simplicial cones)
+ *
+ * readConeFromFile consumes Coefficient, Vertex, Extreme rays, Determinant and
+ * Facets.
+ * Dual determinant and Lattice points in parallelepiped are written but not read
+ * by readConeFromFile. 
+ * subspace_generators, equalities andfacet_divisors are computed but never written.
+ *
+ * The header block, when present, says whether the cones are homogenized,
+ * dualized or unbounded. "Ambient dimension" is Polyhedron::numOfVars, which counts the
+ * homogenizing variable when the cones are homogenized.
+ * The header is optional.
+ *
+ * Facets are outward normals with the cone on the non-positive side: the cone
+ * is { x : <x,f> <= 0 for every facet f }.  They are often absent ("[]"), since
+ * most producers compute rays only.
  */
 
 listCone *
@@ -340,12 +542,11 @@ readConeFromFile(istream &in)
 }
 
 /* ----------------------------------------------------------------- */
-void printListConeToFile(const char *fileName, listCone* cones, int numOfVars) {
-  ofstream out(fileName);
-  if (!out) {
-    cerr << "Error opening output file `" << fileName << "' for writing in printListConeToFile!" << endl;
-    exit(1);
-  }
+static void
+printListConeToStream(ostream &out, listCone *cones, int numOfVars,
+		      const ConeFileHeader *header)
+{
+  if (header) printConeFileHeaderToFile(out, *header);
 
   if (cones==0) out << "No cones in list.\n";
 
@@ -354,14 +555,36 @@ void printListConeToFile(const char *fileName, listCone* cones, int numOfVars) {
     cones = cones->rest;
   }
   out << endl;
+}
 
+void printListConeToFile(const char *fileName, listCone* cones, int numOfVars) {
+  ofstream out(fileName);
+  if (!out) {
+    cerr << "Error opening output file `" << fileName << "' for writing in printListConeToFile!" << endl;
+    exit(1);
+  }
+  printListConeToStream(out, cones, numOfVars, NULL);
+  out.close();
+  return ;
+}
+/* ----------------------------------------------------------------- */
+void printListConeToFile(const char *fileName, listCone* cones, int numOfVars,
+			 const ConeFileHeader &header) {
+  ofstream out(fileName);
+  if (!out) {
+    cerr << "Error opening output file `" << fileName << "' for writing in printListConeToFile!" << endl;
+    exit(1);
+  }
+  printListConeToStream(out, cones, numOfVars, &header);
   out.close();
   return ;
 }
 /* ----------------------------------------------------------------- */
 listCone *
-readListConeFromFile(istream &in)
+readListConeFromStream(istream &in, ConeFileHeader *header_out)
 {
+  ConeFileHeader header = readConeFileHeader(in);
+  if (header_out) *header_out = header;
   listCone *result = NULL;
   listCone **tail_p = &result;
   while ((*tail_p = readConeFromFile(in)) != NULL) {
@@ -371,16 +594,19 @@ readListConeFromFile(istream &in)
 }
 /* ----------------------------------------------------------------- */
 listCone *
-readListConeFromFile(const char *filename)
+readListConeFromFile(const char *filename, ConeFileHeader *header_out)
 {
   ifstream in(filename);
-  return readListConeFromFile(in);
+  return readListConeFromStream(in, header_out);
 }
 
 /* ----------------------------------------------------------------- */
 void
-readListConeFromFile(istream &in, ConeConsumer &consumer)
+readListConeFromFile(istream &in, ConeConsumer &consumer,
+		     ConeFileHeader *header_out)
 {
+  ConeFileHeader header = readConeFileHeader(in);
+  if (header_out) *header_out = header;
   listCone *cone;
   while ((cone = readConeFromFile(in)) != NULL)
     consumer.ConsumeCone(cone);

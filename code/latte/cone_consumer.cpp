@@ -49,6 +49,13 @@ PrintingConeConsumer::PrintingConeConsumer(string filename)
   : stream(filename.c_str()), cone_count(0)
 {}
 
+PrintingConeConsumer::PrintingConeConsumer(string filename,
+					   const ConeFileHeader &header)
+  : stream(filename.c_str()), cone_count(0)
+{
+  printConeFileHeaderToFile(stream, header);
+}
+
 int
 PrintingConeConsumer::ConsumeCone(listCone *cone)
 {
@@ -76,8 +83,18 @@ void SingletonConeProducer::Produce(ConeConsumer &consumer)
 
 ListConeReadingConeProducer::ListConeReadingConeProducer
 (const string &a_filename, int a_size_estimate)
-  : filename(a_filename), size_estimate(a_size_estimate)
+  : filename(a_filename), size_estimate(a_size_estimate),
+    have_expected(false)
 {
+}
+
+void
+ListConeReadingConeProducer::SetExpectedHeader(const ConeFileHeader &a_expected,
+					       const string &a_hint)
+{
+  expected = a_expected;
+  hint = a_hint;
+  have_expected = true;
 }
 
 void ListConeReadingConeProducer::Produce(ConeConsumer &consumer)
@@ -89,6 +106,10 @@ void ListConeReadingConeProducer::Produce(ConeConsumer &consumer)
     cerr << "Error opening file `" << filename << "'" << endl;
     exit(1);
   }
+  /* Read and check the header before consuming cones. */
+  header = readConeFileHeader(file);
+  if (have_expected)
+    checkConeFileHeader(header, expected, filename, hint);
   readListConeFromFile(file, consumer);
 }
 
