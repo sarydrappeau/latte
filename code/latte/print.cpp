@@ -216,6 +216,28 @@ look_for(istream &in, const char *token)
   return false;
 }
 
+/* Scan forward to TOKEN, picking up a `Determinant:VALUE' field on the way and
+   storing it in DET. DET is left untouched when no determinant is seen. */
+static bool
+look_for_capturing_determinant(istream &in, const char *token, ZZ &det)
+{
+  string s;
+  const string prefix = "Determinant:";
+  while (in.good()) {
+    in >> s;
+    if (s == token) return true;
+    if (s.compare(0, prefix.size(), prefix) == 0) {
+      if (s.size() > prefix.size()) {
+	istringstream value(s.substr(prefix.size()));
+	value >> det;
+      }
+      else
+	in >> det;
+    }
+  }
+  return false;
+}
+
 static void
 skip_space(istream &in)
 {
@@ -261,7 +283,7 @@ Extreme rays:
 [-a b c ... ]
 [-a b c ... ]
 [-a b c ... ]
-Determinant: (not sure on data-type, could be rational?)
+Determinant:int
 Facets:
 []
 Dual determinant:0
@@ -311,7 +333,8 @@ readConeFromFile(istream &in)
 
   if (!look_for(in, "rays:")) return NULL;
   cone->rays = readListVector(in);
-  if (!look_for(in, "Facets:")) return NULL;
+  if (!look_for_capturing_determinant(in, "Facets:", cone->determinant))
+    return NULL;
   cone->facets = readListVector(in);
   return cone;
 }
