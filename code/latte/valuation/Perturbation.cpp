@@ -276,9 +276,16 @@ bool LinearLawrenceIntegration::computeDotProducts(const vec_ZZ &l, const mat_ZZ
 	//printCone(simplicialCone, l.length());
 
 
+	/* The ray matrix exists only to get the determinant, and the cone may
+	   already carry it. We check this in simplicialCone->determinant. */
+	const bool haveStoredDeterminant = (latticeInverse == NULL
+			&& simplicialCone->determinant != 0
+			&& (int) rayDotProducts.size() == (simplicialCone->rays->first).length());
+
 	//build the ray matrix and compute the dot products and init. epsilon and power.
 	mat_ZZ rayMatrix;
-	rayMatrix.SetDims((simplicialCone->rays->first).length(), rayDotProducts.size());//dimension.
+	if (!haveStoredDeterminant)
+		rayMatrix.SetDims((simplicialCone->rays->first).length(), rayDotProducts.size());//dimension.
 	for (listVector * ray = simplicialCone->rays; ray; ray = ray->rest, ++i)
 	{
 		//cout << "i=" << i << endl;
@@ -291,15 +298,20 @@ bool LinearLawrenceIntegration::computeDotProducts(const vec_ZZ &l, const mat_ZZ
 			divideByZero = true;
 
 		//save the rays in the column.
-		for(int j = 0; j < l.length(); ++j)
-			rayMatrix[j][i]  = ray->first[j];
+		if (!haveStoredDeterminant)
+			for(int j = 0; j < l.length(); ++j)
+				rayMatrix[j][i]  = ray->first[j];
 		//cout << "start of ray i" << endl;
 		//printVector(ray->first, l.length());
 	}//for each ray.
 	//cout << "ray matrix formed from cone" << endl;
 	//printCone(simplicialCone, l.length());
 	//now find the abs. value of the det. of the rays
-	if ( latticeInverse == NULL) //or we could check that length of rays = # of rays.
+	if ( haveStoredDeterminant )
+	{
+		determinant = abs(simplicialCone->determinant);
+	}//the cone already knows its determinant
+	else if ( latticeInverse == NULL) //or we could check that length of rays = # of rays.
 	{
 		determinant = abs(NTL::determinant(rayMatrix));
 	}//cone if full-dimensional

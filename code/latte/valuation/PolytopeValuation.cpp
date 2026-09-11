@@ -1224,7 +1224,12 @@ RationalNTL PolytopeValuation::findVolumeUsingLawrence()
 			//cout << "findVol Law:: dim=" << dimension << ", num of var =" << numOfVars << endl;
 			if(dimension == numOfVars)
 			{
-				determinant(det, mat);
+				/* Reuse the cone's own determinant when it has one.
+				   Zero means `not computed'. */
+				if (simplicialCone->determinant != 0)
+					det = simplicialCone->determinant;
+				else
+					determinant(det, mat);
 			}
 			else
 			{
@@ -1427,5 +1432,8 @@ void PolytopeValuation::triangulatePolytopeVertexRayCone()
 	printListCone(triangulatedPoly, numOfVars);
 	cout << "end of vertex cone after triangulation" << endl;
 //*/
+	/* Fill in each simplicial cone's determinant. */
+	ensureConeDeterminants(triangulatedPoly, numOfVars);
+
 	freeTriangulatedPoly = 1; //Delete this in the deconstructor.
 }

@@ -166,3 +166,24 @@ int ambient_cone_dimension(const listCone *cone)
   if (cone == NULL) return 0;
   return cone->vertex->vertex->numerators().length();
 }
+
+void ensureConeDeterminant(listCone *cone, int numOfVars)
+{
+  if (cone->determinant != 0) return;
+  if (lengthListVector(cone->rays) != numOfVars) return;
+
+  mat_ZZ m;
+  m.SetDims(numOfVars, numOfVars);
+  listVector *ray = cone->rays;
+  for (int i = 0; i < numOfVars; i++, ray = ray->rest)
+    m[i] = ray->first;
+  ZZ det;
+  determinant(det, m);
+  cone->determinant = det;
+}
+
+void ensureConeDeterminants(listCone *cones, int numOfVars)
+{
+  for (listCone *cone = cones; cone; cone = cone->rest)
+    ensureConeDeterminant(cone, numOfVars);
+}

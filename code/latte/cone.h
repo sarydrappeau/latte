@@ -108,4 +108,11 @@ listCone *copyListCone(const listCone *cone);
 /* Deduce the ambient dimension of CONE from its data. */
 int ambient_cone_dimension(const listCone *cone);
 
+/* Record CONE's determinant if it is simplicial and does not already carry
+   one; do nothing otherwise.  Zero means "not computed". */
+void ensureConeDeterminant(listCone *cone, int numOfVars);
+
+/* Apply ensureConeDeterminant to every cone in the list. */
+void ensureConeDeterminants(listCone *cones, int numOfVars);
+
 #endif
