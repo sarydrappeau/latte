@@ -766,6 +766,36 @@ Valuation::ValuationContainer Valuation::mainValuationDriver(
 
 	integrationInput.processUserInput(); //sets which algorithms will be used (if the user gave them on the command line)
 
+	if (integrationInput.interactiveIntegrandsMode)
+	{
+		//Interactive mode commits to one algorithm family for the whole process (see
+		//PolytopeValuation's triangulatedPolyKind guard)
+		if (!integrationInput.valuationIntegrate || integrationInput.topEhrhart)
+		{
+			cerr << "--interactive-integrands only supports --valuation=integrate." << endl;
+			THROW_LATTE( LattException::ue_BadCommandLineOption, 0);
+		}
+		if (integrationInput.integrandType == IntegrationInput::inputPolynomial
+				&& integrationInput.integratePolynomialAsLinearFormCone
+				+ integrationInput.integratePolynomialAsLinearFormTriangulation
+				+ integrationInput.integratePolynomialAsPLFTriangulation != 1)
+		{
+			cerr << "--interactive-integrands requires exactly one of --cone-decompose, "
+					"--triangulate, or --polynomial-as-plf for a polynomial integrand "
+					"(it cannot mix algorithm families across requests on one process)."
+					<< endl;
+			THROW_LATTE( LattException::ue_BadCommandLineOption, 0);
+		}
+		if (integrationInput.integrandType == IntegrationInput::inputLinearForm
+				&& integrationInput.integrateLinearFormCone
+				+ integrationInput.integrateLinearFormTriangulation != 1)
+		{
+			cerr << "--interactive-integrands requires exactly one of --cone-decompose or "
+					"--triangulate for a linear-form integrand." << endl;
+			THROW_LATTE( LattException::ue_BadCommandLineOption, 0);
+		}
+	}
+
 	if ( integrationInput.volumeCone
 			|| integrationInput.integrateLinearFormCone
 			|| integrationInput.integratePolynomialAsLinearFormCone
@@ -1074,7 +1104,15 @@ void Valuation::polyhedronToCones(const IntegrationInput &intInput, Polyhedron *
 				|| (intInput.useTangentCones == true) //the user gave --cone-decompose but didn't give an integrand.
 				)
 		{
-			assert(Poly->homogenized == false);
+			if (Poly->homogenized == true)
+			{
+				/* The cone-decompose family works on the vertex-ray representation,
+				   which the user did not provide */
+				THROW_LATTE_MSG(LattException::ie_UnexpectedIntegrationOption, 1,
+						"this input provides homogenized one-cones, which only the "
+						"triangulation algorithm can use; use --triangulate instead, "
+						"or give the polytope by its H- or V-representation.");
+			}
 			if (Poly->dualized)
 			{
 				cerr << "(First dualizing back... ";
@@ -1098,7 +1136,16 @@ void Valuation::polyhedronToCones(const IntegrationInput &intInput, Polyhedron *
 		}//find vertex-rays
 		else
 		{
-			assert(Poly->homogenized == true);
+			if (Poly->homogenized == false)
+			{
+				/* The triangulation family works on the homogenized one-cone
+				   representation, which the user did not provide */
+				THROW_LATTE_MSG(LattException::ie_UnexpectedIntegrationOption, 1,
+						"this input provides vertex tangent cones, which only the "
+						"cone-decomposition algorithm can use; pass --cone-decompose "
+						"instead of --triangulate/--polynomial-as-plf, or give the "
+						"polytope by its H- or V-representation.");
+			}
 			if (Poly->dualized)
 			{
 				cerr << "(First dualizing back... ";

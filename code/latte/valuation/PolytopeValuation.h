@@ -80,6 +80,12 @@ private:
         mutable vector<simplexZZ> cachedSimplices; // one entry per cone of triangulatedPoly, valid after ensureSimplicesCached() has run
         mutable bool simplicesCached;   // true once ensureSimplicesCached() has run
         void ensureSimplicesCached() const; // build cachedSimplices from triangulatedPoly; idempotent
+        enum TriangulatedRepresentation {
+            NotYetTriangulated,
+            VertexRayTriangulation,   // built by triangulatePolytopeVertexRayCone()
+            OneConeTriangulation      // built by triangulatePolytopeCone()
+        };
+        TriangulatedRepresentation triangulatedPolyKind; // which representation triangulatedPoly currently holds
 	ZZ findDilationFactorOneCone() const;
 	ZZ findDilationFactorVertexRays() const;
 	RationalNTL findIntegralUsingTriangulation(linFormSum &forms) const; //computes the integral over every simplex

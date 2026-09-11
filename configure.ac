@@ -9,6 +9,7 @@ AM_INIT_AUTOMAKE([gnu 1.11])  # Need 1.11 for parallel test harness in code/mapl
 AM_MAINTAINER_MODE
 AC_CONFIG_FILES([Makefile EXAMPLES/Makefile doc/Makefile code/Makefile code/latte/Makefile code/latte/normalize/Makefile code/test-suite/Makefile code/maple/Makefile code/lidia-include.h:code/lidia-include.hin])
 AC_CONFIG_FILES([code/test-suite/test.pl], [chmod +x code/test-suite/test.pl])
+AC_CONFIG_FILES([code/test-suite/test-interactive-integrands.pl], [chmod +x code/test-suite/test-interactive-integrands.pl])
 AC_CONFIG_FILES([code/latte/integration/testMultiply.sh], [chmod +x code/latte/integration/testMultiply.sh])
 AC_CONFIG_FILES([code/latte/integration/testIntegration.sh], [chmod +x code/latte/integration/testIntegration.sh])
 AC_CONFIG_FILES([code/maple/test-maple.sh], [chmod +x code/maple/test-maple.sh])

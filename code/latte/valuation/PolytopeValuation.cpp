@@ -22,7 +22,8 @@ PolytopeValuation::PolytopeValuation(Polyhedron *p, BarvinokParameters &bp) :
 			freePolytopeAsOneCone(0), freeTriangulatedPoly(0),
 			latticeInverse(NULL), latticeInverseDilation(NULL),
 	                dilated(false), dilationFactor(to_ZZ(1)),
-	                simplicesCached(false)
+	                simplicesCached(false),
+	                triangulatedPolyKind(NotYetTriangulated)
 
 {
 	numOfVars = parameters.Number_of_Variables; //keep number of original variables.
@@ -509,10 +510,11 @@ RationalNTL PolytopeValuation::findIntegral(const linFormSum& originalLinearForm
 			 << " starting to integrate " << linearForms.termCount << " linear forms.\n";
 		answer.add(findIntegralUsingLawrence(linearForms)); //finally, we are ready to do the integration!
 
-		if ( constantMonomial != 0)
-			answer.add(findVolume(volumeCone)*constantMonomial);
-
 		answer.div(power(dilationFactor, linearForms.varCount)); //factor in the Jacobian term.
+
+		if ( constantMonomial != 0)
+			answer.add(findVolume(volumeCone)*constantMonomial);  // the volume computation already did its dilation
+
 	}// if computing the integral using the lawrence style method.
 	else if ( algorithm == integrateLinearFormTriangulation)
 	{
@@ -529,8 +531,8 @@ RationalNTL PolytopeValuation::findIntegral(const linFormSum& originalLinearForm
 		{
 			RationalNTL volume;
 			volume = findVolume(volumeTriangulation)*constantMonomial;
-			if (numOfVars != numOfVarsOneCone)
-				volume.div(power(dilationFactor, linearForms.varCount)); //factor in the Jacobian term.
+//			if (numOfVars != numOfVarsOneCone)
+//				volume.div(power(dilationFactor, linearForms.varCount)); //factor in the Jacobian term.
 			answer.add(volume);
 		}
 
@@ -604,8 +606,8 @@ RationalNTL PolytopeValuation::findIntegral(const linFormProductSum& originalLin
 	{
 		RationalNTL volume;
 		volume = findVolume(volumeTriangulation)*constantMonomial;
-		if (numOfVars != numOfVarsOneCone)
-			volume.div(power(dilationFactor, linearFormProducts.varCount)); //factor in the Jacobian term.
+//		if (numOfVars != numOfVarsOneCone)
+//			volume.div(power(dilationFactor, linearFormProducts.varCount)); //factor in the Jacobian term.
 		answer.add(volume);
 	}
 
@@ -870,10 +872,10 @@ RationalNTL PolytopeValuation::findIntegralPolynomialToLinearForms(const monomia
 			 << " starting to integrate " << linearForms.termCount << " linear forms.\n";
 		answer.add(findIntegralUsingLawrence(linearForms)); //finally, we are ready to do the integration!
 
+		answer.div(power(dilationFactor, polynomial.varCount)); //factor in the Jacobian term.
+
 		if ( constantMonomial != 0)
 			answer.add(findVolume(volumeCone)*constantMonomial);
-
-		answer.div(power(dilationFactor, polynomial.varCount)); //factor in the Jacobian term.
 	}// if computing the integral using the lawrence style method.
 	else if ( algorithm == integratePolynomialAsLinearFormTriangulation)
 	{
@@ -890,8 +892,8 @@ RationalNTL PolytopeValuation::findIntegralPolynomialToLinearForms(const monomia
 		{
 			RationalNTL volume;
 			volume = findVolume(volumeTriangulation)*constantMonomial;
-			if (numOfVars != numOfVarsOneCone)
-				volume.div(power(dilationFactor, polynomial.varCount)); //factor in the Jacobian term.
+//			if (numOfVars != numOfVarsOneCone)
+//				volume.div(power(dilationFactor, polynomial.varCount)); //factor in the Jacobian term.
 			answer.add(volume);
 		}
 
@@ -1375,7 +1377,16 @@ void PolytopeValuation::setFullDimension(int d)
 void PolytopeValuation::triangulatePolytopeCone()
 {
 	if (triangulatedPoly)
+	{
+		if (triangulatedPolyKind != OneConeTriangulation)
+			THROW_LATTE_MSG(LattException::ie_UnexpectedIntegrationOption, 1,
+					"PolytopeValuation::triangulatePolytopeCone(): triangulatedPoly already holds a "
+					"vertex-ray-cone triangulation (built for the cone/Lawrence algorithm family); "
+					"cannot reuse it for a triangulation-family computation on the same instance. "
+					"Use the same algorithm family (volumeCone/*Cone vs. volumeTriangulation/*Triangulation) "
+					"for every call on one PolytopeValuation instance.");
 		return; //all ready did computation.
+	}
 	if (polytopeAsOneCone == NULL)
 	{
 		cout
@@ -1388,6 +1399,7 @@ void PolytopeValuation::triangulatePolytopeCone()
 			&parameters);
 	parameters.Number_of_Variables = numOfVars; //convert back.
 	freeTriangulatedPoly = 1; //Delete this in the deconstructor.
+	triangulatedPolyKind = OneConeTriangulation;
 }//triangulateCone()
 
 
@@ -1397,7 +1409,16 @@ void PolytopeValuation::triangulatePolytopeCone()
 void PolytopeValuation::triangulatePolytopeVertexRayCone()
 {
 	if (triangulatedPoly)
+	{
+		if (triangulatedPolyKind != VertexRayTriangulation)
+			THROW_LATTE_MSG(LattException::ie_UnexpectedIntegrationOption, 1,
+					"PolytopeValuation::triangulatePolytopeVertexRayCone(): triangulatedPoly already holds "
+					"a one-cone triangulation (built for the triangulation algorithm family); cannot reuse "
+					"it for a cone/Lawrence-family computation on the same instance. Use the same algorithm "
+					"family (volumeCone/*Cone vs. volumeTriangulation/*Triangulation) for every call on one "
+					"PolytopeValuation instance.");
 		return; //already did computation
+	}
 /*
 	cout << "vertex cone before triangulation" << endl;
 	printListCone(vertexRayCones, numOfVars);
@@ -1436,4 +1457,5 @@ void PolytopeValuation::triangulatePolytopeVertexRayCone()
 	ensureConeDeterminants(triangulatedPoly, numOfVars);
 
 	freeTriangulatedPoly = 1; //Delete this in the deconstructor.
+	triangulatedPolyKind = VertexRayTriangulation;
 }

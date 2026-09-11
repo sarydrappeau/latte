@@ -1,0 +1,235 @@
+#!/usr/bin/perl -w
+
+## usage: ./test-interactive-integrands.pl "ALGORITHM" ["PROBLEMS..."]
+##
+## Tests `integrate --interactive-integrands', which evaluates many integrands
+## against a single PolytopeValuation instead of building a fresh one per
+## integrand.  The point of the mode is that the cached dilation and
+## triangulation are reused, so what this checks is that reuse does not change
+## any answer: every request below must give the same value it gives in a
+## one-shot run, whatever position it holds in the session.  That is why the
+## "volume" request sits in a different place in each session.
+##
+## ALGORITHM is the single algorithm the session is pinned to, either
+## --cone-decompose or --triangulate (interactive mode rejects a combination
+## that would name more than one).
+
+## Environment variables:
+##  SET_ULIMIT  -- Set if we should use "ulimit" to stop computations that take too long.
+##  USE_INSTALLED_BINARY -- Set if we should use the installed binary instead of the $builddir binary.
+##  COPY_BINARY -- Set if we should make a local copy of the binary, so that long-running
+#                  tests are not disturbed by recompiles.  Does not work with --enable-shared.
+
+use File::Basename;
+use File::Path;
+
+# Interactive mode prints one tagged line per request on stdout, either
+# "ANSWER: <value>" or "ERROR: <message>", mixed in with the usual progress
+# chatter.  We collect the tagged lines and compare them in order.
+$OUTPUT_FILE_NAME = "out";
+
+# Interactive mode reads its integrands from stdin, but the integrand *type*
+# still has to be named on the command line, and the only options that do that
+# also take a file name.  The file is never opened in interactive mode, so an
+# empty one is enough to select "polynomial".
+$DUMMY_MONOMIAL_FILE = "monomials.dummy";
+
+# add file names, sessions and expected answers to an array.
+# A session is the list of requests fed to stdin, one per line, "|"-separated
+# here; the answers are the matching "|"-separated list of expected values.
+# The expected values are not hand-computed: they were taken from the one-shot
+# `--valuation=volume' and `--valuation=integrate --monomials=FILE' paths,
+# which do not share code with the interactive loop, and they agree between
+# both algorithms.
+# Polynomials are in the usual maple-style syntax, [[coef,[exponents]], ...].
+my @files_sessions = (
+   # FILENAME::SESSION::EXPECTED-ANSWERS::TIME-LIMIT
+   # 2-dimensional, integer vertices (dilation factor 1); volume first.
+   "example1"
+     . "::volume|[[1,[2,0]],[3,[0,1]]]|[[2,[1,1]]]"
+     . "::1/2|7/12|1/12"
+     . "::1",
+   # 3-dimensional unit cube, integer vertices; volume in the middle.
+   "yoshida/cube2"
+     . "::[[1,[1,1,1]]]|volume|[[1,[2,0,0]],[1,[0,2,0]],[1,[0,0,2]]]"
+     . "::1/8|1|1"
+     . "::1",
+   # 3-dimensional, rational vertices (dilation factor 3); volume last, so the
+   # dilation has already been done and cached by the time it is asked for.
+   # The second polynomial carries a constant term, which findIntegral answers
+   # by calling findVolume: that is the one place where the dilation Jacobian
+   # of the integral and of the volume have to be kept apart, so the expected
+   # value below is exactly int(x^2+y^2+z^2) + 2*volume = 1138/1215 + 2*77/81.
+   "yoshida/tru_cube_latte"
+     . "::[[1,[1,1,1]]]|[[1,[2,0,0]],[1,[0,2,0]],[1,[0,0,2]],[2,[0,0,0]]]|volume"
+     . "::77/648|3448/1215|77/81"
+     . "::5",
+   # 3-dimensional, rational vertices (dilation factor 7); volume first, so the
+   # dilation is done by the volume request and reused by the integrands.
+   # Constant term again: int(x^2+y^2+z^2) + 3*volume = 31968/12005 + 3*144/49.
+   "hickerson/hickerson-7"
+     . "::volume|[[1,[1,1,1]]]|[[1,[2,0,0]],[1,[0,2,0]],[1,[0,0,2]],[3,[0,0,0]]]"
+     . "::144/49|1728/12005|137808/12005"
+     . "::5",
+   # 4-dimensional, integer vertices; volume in the middle.
+   "24_cell"
+     . "::[[1,[2,0,0,0]]]|volume|[[1,[2,4,0,0]],[3,[6,4,2,0]],[-1,[0,0,0,3]]]"
+     . "::26/15|8|1197151/9459450"
+     . "::10"
+);
+
+if ($ENV{MAXRUNTIME}) {
+    $MAXRUNTIME = $ENV{MAXRUNTIME}
+}
+else {
+$MAXRUNTIME = 720;
+}
+
+chop($LATTEDIR = `cd \`dirname $0\`; cd ../..; pwd`);
+$ALGORITHM = $ARGV[0];
+
+$EXAMPLESDIR = "@abs_top_srcdir@/EXAMPLES";
+chop($DATE = `/bin/date +%Y-%m-%d`);
+chop($HOSTNAME = `hostname`);
+$LOGNAME = "log-$DATE-interactive-integrands $ALGORITHM-pid$$\@$HOSTNAME";
+$LOGNAME =~ s![ /]!_!g;
+$LOGDIR = "results/$LOGNAME";
+
+print "Logging to '$LOGDIR/log'\n";
+
+mkpath($LOGDIR) or die;
+chdir($LOGDIR) or die;
+
+if ($ENV{USE_INSTALLED_BINARY}) {
+    $INTEGRATE = "@prefix@/bin/integrate";
+}
+else {
+    $INTEGRATE = "$LATTEDIR/code/latte/integrate";
+}
+
+if ($ENV{COPY_BINARY}) {
+    # We hard-link the executable here and execute it from here, so long-running tests are not disturbed by recompiles.
+    system("ln $INTEGRATE .");
+    $INTEGRATE = "./integrate";
+}
+
+open DUMMY, ">$DUMMY_MONOMIAL_FILE" or die;
+close DUMMY;
+
+$COMMAND = "$INTEGRATE --valuation=integrate --interactive-integrands"
+         . " --monomials=$DUMMY_MONOMIAL_FILE $ALGORITHM";
+
+if ($ENV{SET_ULIMIT}) {
+    # Enforce CPU limits using `ulimit'.  Useful for manual testing
+    # and creating benchmark tables.  Not portable: Does not work on
+    # Cygwin.  Also introduces non-deterministic fails, which is why
+    # we don't use it by default in `make check'. --mkoeppe
+    $COMMAND = "ulimit -t $MAXRUNTIME; ulimit -c 0; $COMMAND";
+}
+else {
+    # Robust, portable; but some examples might take very long.
+}
+
+open SUMMARY, ">summary" or die;
+print SUMMARY "Running $ALGORITHM with time limit ", $MAXRUNTIME, "\n";
+
+if ($ARGV[1]) {
+    @files_sessions = split(' ', $ARGV[1]);
+}
+
+$num_errors = 0;
+
+foreach $file_session (@files_sessions)
+{
+   # data is of the form filename::session::expected::time-limit
+   @tmp = split('::', $file_session);
+   $file_name = $tmp[0];
+   @requests = split(/\|/, $tmp[1]);
+   @expected = split(/\|/, $tmp[2]);
+   $time_limit = $tmp[3];
+
+   unlink($OUTPUT_FILE_NAME);
+   print "$file_name ($ALGORITHM): \t";
+   print SUMMARY "$file_name ($ALGORITHM): \t";
+   if ($time_limit && ($time_limit > $MAXRUNTIME)) {
+       print "Skipped.";
+       print SUMMARY "Skipped.";
+   }
+   elsif (scalar(@requests) != scalar(@expected)) {
+       print "##### BAD TEST DATA: ", scalar(@requests), " requests but ",
+	     scalar(@expected), " expected answers #####";
+       print SUMMARY "BAD TEST DATA";
+       $num_errors++;
+   }
+   else {
+       # One session per polytope: all requests go to a single process, so a
+       # wrong answer here means the reuse changed it.
+       open SESSION, ">session" or die;
+       foreach $request (@requests) {
+	   print SESSION "$request\n";
+       }
+       print SESSION "quit\n";
+       close SESSION;
+
+       $ret_val = system( "$COMMAND $EXAMPLESDIR/$file_name < session > $OUTPUT_FILE_NAME 2>> log ");
+       system( "cat $OUTPUT_FILE_NAME >> log ");
+       if ($ret_val != 0) {
+	   print "ERROR STATUS $ret_val";
+	   print SUMMARY "ERROR STATUS $ret_val";
+	   $num_errors++;
+       } else {
+	   open IN, "<$OUTPUT_FILE_NAME";
+	   if (!IN) {
+	       print "Can't open $OUTPUT_FILE_NAME";
+	       print SUMMARY "Can't open $OUTPUT_FILE_NAME";
+	       $num_errors++;
+	   }
+	   else {
+	       # Interactive mode tags every reply, so the progress output that
+	       # comes with it is simply skipped over.
+	       @answers = ();
+	       while ($line = <IN>) {
+		   chomp $line;
+		   if ($line =~ m/^ANSWER: (.*)$/) {
+		       push @answers, $1;
+		   }
+		   elsif ($line =~ m/^ERROR: (.*)$/) {
+		       push @answers, "ERROR($1)";
+		   }
+	       }
+	       close(IN);
+
+	       if (scalar(@answers) != scalar(@expected)) {
+		   print "##### WRONG ##### got ", scalar(@answers),
+			 " replies, expected ", scalar(@expected);
+		   print SUMMARY "WRONG (got ", scalar(@answers), " replies)";
+		   $num_errors++;
+	       }
+	       else {
+		   $bad = 0;
+		   for ($i = 0; $i < scalar(@expected); $i++) {
+		       print "[$requests[$i] -> $answers[$i]] ";
+		       print SUMMARY "[$requests[$i] -> $answers[$i]] ";
+		       if ($answers[$i] ne $expected[$i]) {
+			   print "##### WRONG, expected $expected[$i] ##### ";
+			   print SUMMARY "WRONG, expected $expected[$i] ";
+			   $bad = 1;
+		       }
+		   }
+		   if ($bad) {
+		       $num_errors++;
+		   } else {
+		       print "GOOD";
+		       print SUMMARY "GOOD";
+		   }
+	       }
+	   }
+       }
+   }
+   print "\n";
+   print SUMMARY "\n";
+}
+
+if ($num_errors > 0) {
+    exit(1);
+}

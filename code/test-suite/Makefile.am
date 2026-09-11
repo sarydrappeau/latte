@@ -4,7 +4,7 @@ MAXRUNTIME=10
 
 TESTS_ENVIRONMENT=env MAXRUNTIME=$(MAXRUNTIME)
 
-BUILT_SOURCES = test.pl
+BUILT_SOURCES = test.pl test-interactive-integrands.pl
 
 TESTS =
 
@@ -12,7 +12,8 @@ TESTS +=					\
 	test-homog.sh				\
 	test-default.sh				\
 	test-irr-exp-maxdet1000.sh		\
-	test-allprimal-exp-maxdet1000.sh
+	test-allprimal-exp-maxdet1000.sh	\
+	test-interactive-integrands.sh
 
 #### Using 4ti2 is actually the new default, no need to test it separately.
 ## if HAVE_FORTYTWO_LIB
