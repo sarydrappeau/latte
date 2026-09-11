@@ -1059,6 +1059,11 @@ RationalNTL PolytopeValuation::findVolume(ValuationAlgorithm algorithm)
 {
 	RationalNTL answer;
 
+	/* Dilate before triangulating, so that putative later integral computations
+	   use a cached triangulation and a vertexRayCones data which are coherent
+	   with each other. */
+	ensureDilated();
+
 	if (algorithm == volumeTriangulation)
 	{
 
@@ -1078,6 +1083,12 @@ RationalNTL PolytopeValuation::findVolume(ValuationAlgorithm algorithm)
 		//cout << "findVolumeUsingLawrence(): VOLUME: " << answer << endl;
 	}
 
+	/* dilatePolytopeVertexRays scales the vertices for good, without recording
+	   the dilation factor, so we need to take it into account.
+	   dilatePolytopeOneCone instead records the factor in the lifted cone
+	   (that is the case where numOfVars and numOfVarsOneCone agree). */
+	if (numOfVars != numOfVarsOneCone)
+		answer.div(power(dilationFactor, numOfVars));
 
 	return answer;
 
