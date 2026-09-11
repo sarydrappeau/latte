@@ -323,6 +323,104 @@ Valuation::ValuationContainer Valuation::computeIntegralProductLinearForm(Polyhe
 	return answer;
 }//computeIntegralProductLinearForm
 
+/**
+ * Interactive mode: builds one PolytopeValuation for poly and evaluates integrands read one
+ * per line from stdin against it (so that we don't recompute the triangulation at each call).
+ * Terminates on EOF or "quit". Writes one tagged line of output per integrand: "ANSWER: <val>"
+ * on success, "ERROR: <msg>" on failure.
+ *
+ * The user should take good care to input well-formed loadMonomials/loadLinForms/loadLinFormProducts
+ * because there are no good parse-check for these (and a parse fail would either give a wrong
+ * answer, or break the interactive loop).
+ * The user can get the volume by submitting "volume".
+ */
+void Valuation::runInteractiveIntegrandsLoop(Polyhedron *poly,
+		BarvinokParameters &myParameters, const IntegrationInput &intInput)
+{
+	PolytopeValuation polytopeValuation(poly, myParameters);
+
+	PolytopeValuation::ValuationAlgorithm algorithm;
+	if (intInput.integrandType == IntegrationInput::inputPolynomial)
+	{
+		if (intInput.integratePolynomialAsLinearFormCone)
+			algorithm = PolytopeValuation::integratePolynomialAsLinearFormCone;
+		else if (intInput.integratePolynomialAsLinearFormTriangulation)
+			algorithm = PolytopeValuation::integratePolynomialAsLinearFormTriangulation;
+		else
+			algorithm = PolytopeValuation::integratePolynomialAsPLFTriangulation;
+	}
+	else if (intInput.integrandType == IntegrationInput::inputLinearForm)
+	{
+		algorithm = intInput.integrateLinearFormCone ?
+				PolytopeValuation::integrateLinearFormCone :
+				PolytopeValuation::integrateLinearFormTriangulation;
+	}
+	else //inputProductLinearForm: only one algorithm exists for this integrand type.
+	{
+		algorithm = PolytopeValuation::integrateProductLinearFormsTriangulation;
+	}
+
+	//The volume algorithm from the same family (cone/Lawrence vs. triangulation) as the fixed
+	//integrand algorithm above, so "volume" lines never mix families on this instance.
+	PolytopeValuation::ValuationAlgorithm volumeAlgorithm =
+			(algorithm == PolytopeValuation::integrateLinearFormCone
+					|| algorithm == PolytopeValuation::integratePolynomialAsLinearFormCone) ?
+			PolytopeValuation::volumeCone : PolytopeValuation::volumeTriangulation;
+
+	string line;
+	while (getline(cin, line))
+	{
+		if (line == "quit")
+			break;
+		if (line.empty())
+			continue;
+
+		try
+		{
+			RationalNTL answer;
+			if (line == "volume")
+			{
+				answer = polytopeValuation.findVolume(volumeAlgorithm);
+			}
+			else if (intInput.integrandType == IntegrationInput::inputPolynomial)
+			{
+				monomialSum polynomial;
+				loadMonomials(polynomial, line);
+				answer = polytopeValuation.findIntegral(polynomial, algorithm);
+				destroyMonomials(polynomial);
+			}
+			else if (intInput.integrandType == IntegrationInput::inputLinearForm)
+			{
+				linFormSum forms;
+				loadLinForms(forms, line);
+				answer = polytopeValuation.findIntegral(forms, algorithm);
+				destroyLinForms(forms);
+			}
+			else //inputProductLinearForm
+			{
+				linFormProductSum products;
+				loadLinFormProducts(products, line);
+				answer = polytopeValuation.findIntegral(products, algorithm);
+				destroyLinFormProducts(products);
+			}
+			cout << "ANSWER: " << answer << endl;
+		}
+		catch (LattException &e)
+		{
+			cout << "ERROR: " << e.what() << endl;
+		}
+		catch (std::exception &e)
+		{
+			cout << "ERROR: " << e.what() << endl;
+		}
+		catch (...)
+		{
+			cout << "ERROR: unknown exception" << endl;
+		}
+		cout.flush();
+	}
+}//runInteractiveIntegrandsLoop
+
 void Valuation::computeTopEhrhart(Polyhedron *poly,
 		BarvinokParameters &myParameters, const IntegrationInput & intInput)
 {
@@ -594,6 +692,13 @@ Valuation::ValuationContainer Valuation::mainValuationDriver(
 		{
 			interactiveLatte = true; //note, when in
 		}
+		else if (strcmp(argv[i], "--interactive-integrands") == 0)
+		{
+			//Not the same feature as --interactive-mode above: that one prompts once for a
+			//single integrand; this one reuses one PolytopeValuation across many integrands
+			//read from stdin, one per line.
+			integrationInput.interactiveIntegrandsMode = true;
+		}
 		else if (strncmp(argv[i], "--num-coefficients=", 19) == 0) {
 			integrationInput.numEhrhartCoefficients = atoi(argv[i] + 19);
 		}
@@ -797,6 +902,9 @@ Valuation::ValuationContainer Valuation::mainValuationDriver(
 			valuationAnswers = computeVolume(Poly, *params, integrationInput,
 					printLawrence);
 
+		} else if (integrationInput.interactiveIntegrandsMode)
+		{
+			runInteractiveIntegrandsLoop(Poly, *params, integrationInput);
 		} else //integration
 		{
 			//read the integrand from the file or from std in.
@@ -1125,6 +1233,7 @@ Valuation::IntegrationInput::IntegrationInput()
 	useTangentCones= false;		//--cone-decompose
 	useTriangulation= false;	//--triangulate
 	polynomialAsPLF= false;		//--polynomial-as-plf
+	interactiveIntegrandsMode = false; //--interactive-integrands
 }
 
 

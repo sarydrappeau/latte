@@ -163,6 +163,8 @@ public:
 
 	bool polynomialAsPLF;		//--polynomial-as-plf
 
+	bool interactiveIntegrandsMode;	//--interactive-integrands: read many integrands from
+										//  stdin, one per line, against one PolytopeValuation.
 
 };
 
@@ -179,6 +181,12 @@ ValuationContainer computeIntegralLinearForm(Polyhedron *poly,
 		BarvinokParameters &myParameters, const IntegrationInput & intInput);
 ValuationContainer computeIntegralProductLinearForm(Polyhedron *poly,
 		BarvinokParameters &myParameters, const IntegrationInput & intInput);
+//Interactive mode: evaluates many integrands (one per stdin line) against one
+//PolytopeValuation built for poly, instead of building a fresh one per integrand.
+//intInput must already have been resolved (via processUserInput()) to exactly one
+//algorithm for its integrandType. See IntegrationInput::interactiveIntegrandsMode.
+void			   runInteractiveIntegrandsLoop(Polyhedron *poly,
+		BarvinokParameters &myParameters, const IntegrationInput &intInput);
 void 			   computeTopEhrhart(Polyhedron *poly,
 		BarvinokParameters &myParameters, const IntegrationInput & intInput); //Computes top weighted Ehrhart coefficients
 
